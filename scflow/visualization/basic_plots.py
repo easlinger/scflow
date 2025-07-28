@@ -19,9 +19,9 @@ def plot_scatter(adata, color=None, **kwargs):
     return fig
 
 
-def plot_heat(adata, color=None, **kwargs):
+def plot_heat(adata, genes=None, col_celltype=None, **kwargs):
     """Plot a gene expression heat map."""
-    fig = sc.pl.heatmap(adata, color=color, **kwargs)
+    fig = sc.pl.heatmap(adata, genes, col_celltype, **kwargs)
     return fig
 
 
@@ -31,7 +31,7 @@ def plot_dot(adata, genes=None, color=None, **kwargs):
     return fig
 
 
-def plot_matrix(adata, col_celltype=None, **kwargs):
+def plot_matrix(adata, genes=None, col_celltype=None, **kwargs):
     """Plot a gene expression matrix plot."""
     fig = sc.pl.dotplot(adata, genes, col_celltype, **kwargs)
     return fig
@@ -39,7 +39,7 @@ def plot_matrix(adata, col_celltype=None, **kwargs):
 
 def plot_violin(adata, genes=None, col_celltype=None, **kwargs):
     """Plot a gene expression violin plot."""
-    fig = sc.pl.violinplot(adata, genes, col_celltype, **kwargs)
+    fig = sc.pl.violin(adata, genes, col_celltype, **kwargs)
     return fig
 
 

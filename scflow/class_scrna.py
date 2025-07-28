@@ -119,18 +119,19 @@ class Rna(object):
     #         self._rna = self._adata
 
     def plot(self, kind=None, col_celltype=None, genes=None,
-             color=None, **kwargs):
+             color=None, figsize=None, return_fig=False, **kwargs):
         """Plot."""
 
         # Process Arguments
         if col_celltype is None:
             col_celltype = self._info["col_celltype"]
-        genes_plots = ["dot", "tracks", "matrix", "stacked_violin", "violin"]
+        genes_plots = ["dot", "tracks", "matrix", "heat",
+                       "stacked_violin", "violin"]
         colors_plots = ["scatter", "umap"]
         if kind is None:  # if no plot kind specified
             kind = ["umap", "heat", "violin"]
         if isinstance(kind, str):  # ensure consistency if just 1 plot kind
-            if kind not in kwargs and isinstance(kind, dict):
+            if kind not in kwargs:
                 kwargs = {kind: kwargs}  # make kwargs keyed ~ kind
             kind = [kind]  # ensure list, even if just one plot kind
         kind = [k.lower() for k in kind]  # make not case-sensitive
@@ -145,11 +146,14 @@ class Rna(object):
                 kwargs[k].update({"genes": genes})  # ...specify "genes"
             if k in colors_plots and "color" not in kwargs[k]:  # if needed...
                 kwargs[k].update({"color": color})  # ...specify grouping
-            if k in ["matrix", "violin", "stacked_violin"] and (
+            if k in [x"matrix", "violin", "stacked_violin", "heat"] and (
                     "col_celltype" not in kwargs[k]):
                 kwargs[k]["col_celltype"] = col_celltype  # specify cell type
+            if "violin" not in k and k != "umap":
+                kwargs[k]["figsize"] = figsize
             fig[k] = f_x(self.rna, **kwargs[k])
-        return fig
+        if return_fig  is True:
+            return fig
 
     def preprocess(self, inplace=True, **kws_pp):
         """Filter, normalize, and perform QC on data."""
@@ -167,11 +171,9 @@ class Rna(object):
                 kws.update({x: {}})
         kws["kws_cluster"]["resolution"] = resolution
         kws["kws_umap"]["min_dist"] = min_dist
-        if kws_pca is False:
-            pass
-        else:
-            if "kws_pca" not in kws:
-                kws["kws_pca"] = {}
+        if "kws_pca" not in kws:
+            kws["kws_pca"] = {}
+        if kws["kws_pca"] is not False:
             kws["kws_pca"]["use_highly_variable"] = use_highly_variable
         if inplace is True:
             self.rna = scflow.pp.cluster(self.rna, inplace=True, **kws)
