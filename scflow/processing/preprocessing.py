@@ -9,6 +9,7 @@ Functions for preprocessing.
 import os
 import warnings
 import anndata
+import matplotlib.pyplot as plt
 import scanpy as sc
 
 
@@ -17,7 +18,7 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
                layer_scaled="scaled", doublet_detection=False,
                vars_regress_out=None, target_sum=1e4, max_fraction=0.05,
                exclude_highly_expressed=False, n_top_genes=2000, max_mt=None,
-               zero_center=True, max_value=None, inplace=True):
+               zero_center=True, max_value=None, plot_qc=True, inplace=False):
     """Filter, normalize, and perform QC on scRNA-seq data."""
     if isinstance(min_max_genes, str):
         if min_max_genes.lower() not in ["min", "max"]:
@@ -30,30 +31,20 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
         warnings.warn("`layer_counts` not found in `adata.layers`. "
                       "Assuming current `adata.X` is integer counts.")
     adata.X = adata.layers[layer_counts].copy()  # ensure using counts layer
+    try:
+        adata.var_names_make_unique()
+    except Exception as err:
+        print(err)
+    try:
+        adata.obs_names_make_unique()
+    except Exception as err:
+        print(err)
 
     # Highly-Expressed Genes
     sc.pl.highest_expr_genes(adata, n_top=20)
 
-    # Detect Special Genes
-    adata.var["mt"] = adata.var_names.str.startswith(("MT-", "Mt-", "mt-"))
-    adata.var["ribo"] = adata.var_names.str.startswith((
-        "RPS", "RPL", "rps", "rpl", "Rpl", "Rps"))
-    adata.var["hb"] = adata.var_names.str.contains((
-        "^HB[^(P)]", "^Hb[^(p)]", "^Hb[^(P)]", "^hb[^(p)]"))
-
     # Quality Control
-    qc_vars = [i for i in ["mt", "ribo", "hb"] if adata.obs[i].sum() > 0]
-    sc.pp.calculate_qc_metrics(
-        adata, qc_vars=qc_vars, inplace=True, log1p=log1p)
-    sc.pl.violin(
-        adata, ["n_genes_by_counts", "total_counts", "pct_counts_mt"],
-        jitter=0.4, multi_panel=True, use_raw=False)  # QC violin plot
-    if col_sample is not None:  # QC violin plot by sample
-        sc.pl.violin(
-            adata, ["n_genes_by_counts", "total_counts", "pct_counts_mt"],
-            jitter=0.4, multi_panel=True, groupby=col_sample, use_raw=False)
-    sc.pl.scatter(adata, "total_counts", "n_genes_by_counts",
-                  color="pct_counts_mt")  # QC scatter plot
+    adata = perform_qc(adata, plot_qc=plot_qc, col_sample=col_sample)
 
     # Filter Genes & Cells
     if min_max_genes is not None:  # filter cells by gene counts
@@ -94,8 +85,9 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
                           exclude_highly_expressed=exclude_highly_expressed,
                           max_fraction=max_fraction)
     sc.pp.log1p(adata)
-    sc.pp.regress_out(
-        adata, vars_regress_out)  # e.g., ["total_counts", "pct_counts_mt"]
+    if vars_regress_out is not None:
+        sc.pp.regress_out(
+            adata, vars_regress_out)  # e.g. ["total_counts", "pct_counts_mt"]
     adata.layers[layer_log1p] = adata.X.copy()
 
     # HVGs
@@ -108,4 +100,43 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
         sc.pp.scale(adata, zero_center=zero_center, max_value=max_value)
         adata.layers[layer_scaled] = adata.X.copy()
 
+    return adata
+
+
+def perform_qc(adata, qc_vars=None, plot_qc=True, col_sample=None):
+    """Perform QC."""
+    # Detect Special Genes
+    try:
+        adata.var_names_make_unique()
+    except Exception as err:
+        print(err)
+    try:
+        adata.obs_names_make_unique()
+    except Exception as err:
+        print(err)
+    adata.var["mt"] = adata.var_names.str.startswith(("MT-", "Mt-", "mt-"))
+    adata.var["ribo"] = adata.var_names.str.startswith((
+        "RPS", "RPL", "rps", "rpl", "Rpl", "Rps"))
+    adata.var["hb"] = adata.var_names.str.contains(
+        r"^hb[^p]", case=False, regex=True)
+    if qc_vars is None:
+        qc_vars = [i for i in ["mt", "ribo", "hb"] if adata.var[i].sum() > 0]
+    sc.pp.calculate_qc_metrics(
+        adata, qc_vars=qc_vars, inplace=True, log1p=True)
+    if plot_qc is True:
+        sc.pl.violin(
+            adata, ["n_genes_by_counts", "total_counts", "pct_counts_mt"],
+            jitter=0.4, multi_panel=True, use_raw=False)  # QC violin plot
+        if col_sample is not None:  # QC violin plot by sample
+            sc.pl.violin(
+                adata, ["n_genes_by_counts", "total_counts", "pct_counts_mt"],
+                jitter=0.4, multi_panel=True,
+                groupby=col_sample, use_raw=False)
+        adata.var["n_cells_by_counts"].hist()
+        print(adata.var["n_cells_by_counts"].describe())
+        plt.title("# of Cells in which Each Gene Has Non-Zero Expression "
+                  "(n_cells_by_counts)")
+        sc.pl.scatter(adata, "total_counts", "n_genes_by_counts",
+                      color="pct_counts_mt")  # QC scatter plot
+    adata.obs.loc[:, "pct_mt"] = adata.obs["pct_counts_mt"] * 100
     return adata

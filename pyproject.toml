@@ -26,6 +26,10 @@ dependencies = [
     "pandas>=2.0.0",
     "anndata",
     "scanpy",
+    "mudata",
+    "igraph",
+    "leidenalg",
+    "celltypist",
 
     # Plotting
     "matplotlib>=3.9.0",

@@ -14,7 +14,14 @@ import scanpy as sc
 def read_scrna(file_path, **kws_read):
     """Read scRNA-seq data."""
     if os.path.splitext(file_path)[1] == ".h5ad":
+        var_names = kws_read.pop("var_names", None)
         rna = sc.read_h5ad(file_path, **kws_read)
+        if var_names is not None:
+            if rna.var.index.names[0] != var_names:
+                rna.var.loc[:, var_names] = rna.var[
+                    var_names].astype("string")
+                rna.var = rna.var.reset_index().set_index(var_names)
+                rna.var_names = [str(i) for i in rna.var.index.values]
     elif os.path.splitext(file_path)[1] == ".mtx":
         rna = sc.read_10x_mtx(os.path.dirname(file_path), **kws_read)
     elif os.path.isdir(file_path):
