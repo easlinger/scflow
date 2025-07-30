@@ -30,6 +30,7 @@ dependencies = [
     "igraph",
     "leidenalg",
     "celltypist",
+    "harmonpy",
 
     # Plotting
     "matplotlib>=3.9.0",

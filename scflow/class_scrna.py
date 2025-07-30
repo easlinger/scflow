@@ -15,13 +15,15 @@ import numpy as np
 
 layer_log1p = "log1p"  # TODO: MOVE THESE TO CONSTANTS MODULE
 layer_counts = "counts"
+layer_scaled = "scaled"
 
 
 class Rna(object):
     """A class for single-cell RNA-seq data."""
 
-    def __init__(self, file_path=None, col_sample=None, kws_read=None,
-                 col_celltype=None, kws_integrate=None, assay=None, **kwargs):
+    def __init__(self, file_path=None, col_sample=None, col_batch=None,
+                 kws_read=None, col_celltype=None, kws_integrate=None,
+                 assay=None, **kwargs):
         """
         Initialize class instance.
 
@@ -59,14 +61,15 @@ class Rna(object):
             adata = file_path.copy()
         elif isinstance(file_path, (list, dict)):
             if col_sample is None:
-                col_sample = "batch"
+                col_sample = "sample"
             if not isinstance(kws_read, list):  # if not sample-specific kws
                 kws_read = [kws_read] * len(file_path)  # use same for all
             kws_read = dict(zip(list(file_path.keys()), kws_read))
-            adata = [scflow.pp.read_scrna(file_path[x], **kws_read[x])
-                          for x in file_path]
+            adata = [file_path[x] if isinstance(file_path[x], (
+                AnnData, MuData)) else scflow.pp.read_scrna(
+                    file_path[x], **kws_read[x]) for x in file_path]  # read
             adata = scflow.pp.integrate(
-                adata, col_sample=col_sample,
+                adata, col_sample=col_sample, col_batch=col_batch,
                 **kws_integrate)  # integrate with Harmony
         else:
             adata = scflow.pp.read_scrna(file_path, **kws_read)
@@ -83,7 +86,9 @@ class Rna(object):
                             kws_read["var_names"])
                     adata.var_names = adata.var[kws_read[
                         "var_names"]].to_list()
-        self._info = {"col_sample": col_sample, "kws_read": kws_read,
+        self._info = {"col_sample": col_sample,
+                      "col_batch": col_batch,
+                      "kws_read": kws_read,
                       "kws_integrate": kws_integrate,
                       "col_celltype": col_celltype}
         self.assay = assay
@@ -146,7 +151,7 @@ class Rna(object):
                 kwargs[k].update({"genes": genes})  # ...specify "genes"
             if k in colors_plots and "color" not in kwargs[k]:  # if needed...
                 kwargs[k].update({"color": color})  # ...specify grouping
-            if k in [x"matrix", "violin", "stacked_violin", "heat"] and (
+            if k in ["matrix", "violin", "stacked_violin", "heat"] and (
                     "col_celltype" not in kwargs[k]):
                 kwargs[k]["col_celltype"] = col_celltype  # specify cell type
             if "violin" not in k and k != "umap":

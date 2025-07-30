@@ -14,7 +14,7 @@ import scanpy as sc
 
 def cluster(adata, col_celltype="leiden", n_comps=None,
             kws_pca=None, kws_neighbors=None,
-            kws_cluster=None, kws_umap=None, inplace=False):
+            kws_cluster=None, kws_umap=None, plot=True, inplace=False):
     """Cluster omics data."""
     kws_pca, kws_neighbors, kws_cluster, kws_umap = [
         {} if x is None else x for x in [

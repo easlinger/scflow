@@ -9,6 +9,7 @@ Functions for data reading, concatenation, integration, etc.
 import os
 import anndata
 import scanpy as sc
+import scflow
 
 
 def read_scrna(file_path, **kws_read):
@@ -34,10 +35,11 @@ def read_scrna(file_path, **kws_read):
 
 
 def integrate(adata, kws_pp=None, kws_cluster=None,
-              col_sample="batch", axis="obs",
+              col_sample="sample", col_batch=None, axis="obs",
               join="outer", merge=None, uns_merge=None,
               index_unique=None, fill_value=None, basis="X_pca",
-              pairwise=False, force_lazy=False, **kwargs):
+              pairwise=False, plot_qc=False, kws_pca=None,
+              verbose=True, **kwargs):
     """
     Integrate scRNA-seq anndata objects with `Harmony`.
 
@@ -77,6 +79,9 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
             i_th `AnnData` object provided in `adata` (i.e., same order
             as `adata`), and the first string in the `col_sample` list
             will be used as the column name in the integrated object.
+        col_batch (str or list, optional): Like `col_sample`. If
+            specified, integration will be performed with respect to
+            both `col_sample` and `col_batch`.
     """
     if isinstance(adata, (list, dict)):  # if not already concatenated
         ids = col_sample if isinstance(col_sample, list) else [
@@ -90,19 +95,39 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
             adata = dict(zip(sample_ids, adata))
         if isinstance(col_sample, list):
             col_sample = col_sample[0]  # if >1 columns, use 1st as final name
+        for x in adata:
+            adata[x].var_names_make_unique()
+            adata[x].obs_names_make_unique()
         if kws_pp is not None:
+            if isinstance(kws_pp, dict) and any((
+                    x in kws_pp for x in adata)) is False:
+                kws_pp = dict(zip(sample_ids, [kws_pp] * len(
+                    sample_ids)))  # assume same keywords for all samples
             for x in adata:
                 if x in kws_pp:
-                    scflow.pp.preprocess(adata[x], **kws_pp[x])
+                    if verbose is True:
+                        print(f"\n\n***Preprocessing {x}: {kws_pp[x]}...")
+                    scflow.pp.preprocess(adata[x], **{
+                        "plot_qc": plot_qc, "kws_pca": kws_pca, **kws_pp[x],
+                        "inplace": True})
         if kws_cluster is not None:
+            if isinstance(kws_cluster, dict) and any((
+                    x in kws_cluster for x in adata)) is False:
+                kws_cluster = dict(zip(sample_ids, [kws_cluster] * len(
+                    sample_ids)))  # assume same keywords for all samples
             for x in adata:
                 if x in kws_cluster:
-                    scflow.pp.cluster(adata[x], **kws_cluster[x])
+                    if verbose is True:
+                        print(f"\n***Clustering {x}: {kws_cluster[x]}...")
+                    scflow.pp.cluster(adata[x], **{
+                        "plot": plot_qc, **kws_cluster[x], "inplace": True})
         adata = anndata.concat(
             adata, axis=axis, join=join, merge=merge, uns_merge=uns_merge,
             label=col_sample, index_unique=index_unique,
-            fill_value=fill_value, pairwise=pairwise,
-            force_lazy=force_lazy)  # concatenate
+            fill_value=fill_value, pairwise=pairwise)  # concatenate
+    col_covs = col_sample if col_batch is None else [col_sample, col_batch]
+    if verbose is True:
+        print(f"\n\n***Integrating with respect to {', '.join(col_covs)}...")
     adata = sc.external.pp.harmony_integrate(
-        adata, col_sample, basis=basis,
+        adata, col_covs, basis=basis,
         adjusted_basis=f"{basis}_harmony", **kwargs)  # Harmony integration
