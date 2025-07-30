@@ -129,7 +129,8 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
             fill_value=fill_value, pairwise=pairwise)  # concatenate
     col_covs = col_sample if col_batch is None else [col_sample, col_batch]
     if verbose is True:
-        print(f"\n\n***Integrating with respect to {', '.join(col_covs)}...")
+        ccs = col_covs if isinstance(col_covs, str) else " & ".join(col_covs)
+        print(f"\n\n***Integrating with respect to {ccs}...")
     adata = sc.external.pp.harmony_integrate(
         adata, col_covs, basis=basis,
         adjusted_basis=f"{basis}_harmony", **kwargs)  # Harmony integration
