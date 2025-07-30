@@ -99,6 +99,7 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
             adata[x].var_names_make_unique()
             adata[x].obs_names_make_unique()
         if kws_pp is not None:
+            print("\n\n")
             if isinstance(kws_pp, dict) and any((
                     x in kws_pp for x in adata)) is False:
                 kws_pp = dict(zip(sample_ids, [kws_pp] * len(
@@ -106,11 +107,12 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
             for x in adata:
                 if x in kws_pp:
                     if verbose is True:
-                        print(f"\n\n***Preprocessing {x}: {kws_pp[x]}...")
+                        print(f"***Preprocessing {x}: {kws_pp[x]}...")
                     scflow.pp.preprocess(adata[x], **{
                         "plot_qc": plot_qc, "kws_pca": kws_pca, **kws_pp[x],
                         "inplace": True})
         if kws_cluster is not None:
+            print("\n\n")
             if isinstance(kws_cluster, dict) and any((
                     x in kws_cluster for x in adata)) is False:
                 kws_cluster = dict(zip(sample_ids, [kws_cluster] * len(
@@ -118,7 +120,7 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
             for x in adata:
                 if x in kws_cluster:
                     if verbose is True:
-                        print(f"\n***Clustering {x}: {kws_cluster[x]}...")
+                        print(f"***Clustering {x}: {kws_cluster[x]}...")
                     scflow.pp.cluster(adata[x], **{
                         "plot": plot_qc, **kws_cluster[x], "inplace": True})
         adata = anndata.concat(
@@ -131,3 +133,4 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
     adata = sc.external.pp.harmony_integrate(
         adata, col_covs, basis=basis,
         adjusted_basis=f"{basis}_harmony", **kwargs)  # Harmony integration
+    return adata

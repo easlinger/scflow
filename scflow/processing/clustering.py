@@ -24,7 +24,8 @@ def cluster(adata, col_celltype="leiden", n_comps=None,
         adata = adata.copy()
     if kws_pca is not False:
         sc.pp.pca(adata, n_comps=n_comps, **kws_pca)  # PCA
-        sc.pl.pca_variance_ratio(adata, log=True)
+        if plot is True:
+            sc.pl.pca_variance_ratio(adata, log=True)
     sc.pp.neighbors(adata, **kws_neighbors)  # neighbors
     sc.tl.umap(adata, **kws_umap)  # UMAP
     sc.tl.leiden(adata, key_added=col_celltype, **kws_cluster)  # Leiden
