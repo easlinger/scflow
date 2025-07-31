@@ -253,6 +253,7 @@ class Rna(object):
         markers keyed by cell types
         (`reference_markers` in `scanpy.tl.marker_gene_overlap`).
         """
+        # TODO: Overwriting columns unsophisticated (will fail in some cases)
         if col_celltype is None:
             col_celltype = self._info["col_celltype"]
         if col_celltype_new is None:

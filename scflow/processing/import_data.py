@@ -37,9 +37,8 @@ def read_scrna(file_path, **kws_read):
 def integrate(adata, kws_pp=None, kws_cluster=None,
               col_sample="sample", col_batch=None, axis="obs",
               join="outer", merge=None, uns_merge=None,
-              index_unique=None, fill_value=None, basis="X_pca",
-              pairwise=False, plot_qc=False, kws_pca=None,
-              verbose=True, **kwargs):
+              index_unique=None, fill_value=None, pairwise=False,
+              basis="X_pca", plot_qc=False, verbose=True, **kwargs):
     """
     Integrate scRNA-seq anndata objects with `Harmony`.
 
@@ -109,8 +108,7 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
                     if verbose is True:
                         print(f"***Preprocessing {x}: {kws_pp[x]}...")
                     scflow.pp.preprocess(adata[x], **{
-                        "plot_qc": plot_qc, "kws_pca": kws_pca, **kws_pp[x],
-                        "inplace": True})
+                        "plot_qc": plot_qc, **kws_pp[x], "inplace": True})
         if kws_cluster is not None:
             print("\n\n")
             if isinstance(kws_cluster, dict) and any((
@@ -131,7 +129,9 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
     if verbose is True:
         ccs = col_covs if isinstance(col_covs, str) else " & ".join(col_covs)
         print(f"\n\n***Integrating with respect to {ccs}...")
-    adata = sc.external.pp.harmony_integrate(
+    sc.external.pp.harmony_integrate(
         adata, col_covs, basis=basis,
         adjusted_basis=f"{basis}_harmony", **kwargs)  # Harmony integration
+    adata.obsm["X_pca_old"] = adata.obsm["X_pca"].copy()
+    adata.obsm["X_pca"] = adata.obsm["X_pca_harmony"].copy()
     return adata

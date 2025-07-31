@@ -18,7 +18,7 @@ import pandas as pd
 def preprocess(adata, min_max_genes=None, min_max_cells=None,
                col_sample=None, layer_counts="counts", layer_log1p="log1p",
                layer_scaled="scaled", doublet_detection=False,
-               min_max_counts=None, kws_pca=None,
+               normalize=True, min_max_counts=None,
                vars_regress_out=None, target_sum=1e4, max_fraction=0.05,
                exclude_highly_expressed=False, n_top_genes=2000, max_mt=None,
                zero_center=True, max_value=None, plot_qc=True, inplace=False):
@@ -90,10 +90,12 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
         sc.pp.scrublet(adata, batch_key=col_sample)
 
     # Normalization & Regress Out (Optional)
-    sc.pp.normalize_total(adata, target_sum=target_sum,
-                          exclude_highly_expressed=exclude_highly_expressed,
-                          max_fraction=max_fraction)
-    sc.pp.log1p(adata)
+    if normalize is True:
+        sc.pp.normalize_total(
+            adata, target_sum=target_sum,
+            exclude_highly_expressed=exclude_highly_expressed,
+            max_fraction=max_fraction)
+        sc.pp.log1p(adata)
     if vars_regress_out is not None:
         sc.pp.regress_out(
             adata, vars_regress_out)  # e.g. ["total_counts", "pct_counts_mt"]
@@ -109,10 +111,6 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
     if zero_center is not None or max_value is not None:
         sc.pp.scale(adata, zero_center=zero_center, max_value=max_value)
         adata.layers[layer_scaled] = adata.X.copy()
-
-    # PCA (Optional)
-    if kws_pca is not None:
-        adata = sc.pp.pca(adata, **kws_pca)  # PCA
 
     return adata
 
