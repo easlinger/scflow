@@ -7,7 +7,7 @@ name = "scflow"
 version = "0.0.0"
 description = "Process and analyze scRNA-seq and spatial omics data."
 readme = "README.md"
-requires-python = ">=3.10.4"
+requires-python = ">=3.11"
 license = {file = "LICENSE"}
 authors = [
     {name = "Elizabeth Aslinger"}
@@ -21,8 +21,8 @@ urls.Home-page = "https://github.com/easlinger/scflow"
 dependencies = [
 
     # Core
-    "docutils < 0.17,>= 0.10",
-    "numpy >=1.24.4",
+    "docutils<0.17,>=0.10",
+    "numpy>=1.24.4",
     "pandas>=2.0.0",
     "anndata",
     "scanpy",
@@ -30,7 +30,7 @@ dependencies = [
     "igraph",
     "leidenalg",
     "celltypist",
-    "harmonpy",
+    "harmony-py",
 
     # Plotting
     "matplotlib>=3.9.0",

@@ -1,10 +1,10 @@
 # __init__.py
 # pylint: disable=unused-import
 
-import os
-import anndata
+from warnings import warn
 from anndata import AnnData
 import scanpy as sc
+from scipy.sparse import issparse
 from mudata import MuData
 import celltypist
 import scflow
@@ -123,13 +123,18 @@ class Rna(object):
     #     else:
     #         self._rna = self._adata
 
-    def plot(self, kind=None, col_celltype=None, genes=None,
-             color=None, figsize=None, return_fig=False, **kwargs):
+    def plot(self, kind=None, col_celltype=None, genes=None, layer=None,
+             color=None, subset=None,
+             figsize=None, return_fig=False, **kwargs):
         """Plot."""
 
         # Process Arguments
+        adata = self.rna
+        if subset is not None:
+            adata = adata[subset]
         if col_celltype is None:
             col_celltype = self._info["col_celltype"]
+        gby = ["matrix", "violin", "stacked_violin", "heat", "dot"]
         genes_plots = ["dot", "tracks", "matrix", "heat",
                        "stacked_violin", "violin"]
         colors_plots = ["scatter", "umap"]
@@ -139,26 +144,52 @@ class Rna(object):
             if kind not in kwargs:
                 kwargs = {kind: kwargs}  # make kwargs keyed ~ kind
             kind = [kind]  # ensure list, even if just one plot kind
-        kind = [k.lower() for k in kind]  # make not case-sensitive
+        else:  # sort & validate shared & plot-specific kwargs (multi-plot)
+            k_shared = [k for k in kwargs if k not in kind]  # passed directly
+            if len(k_shared) > 0:  # if any plot kind non-specific kws...
+                kws_shared = dict(zip(k_shared, [
+                    kwargs[k] for k in k_shared]))  # extract plot-nonspecific
+                kwargs = dict(zip(kind, [kwargs[k] if (
+                    k in kwargs) else {} for k in kind]))  # plot-specific
+                for s in kws_shared:  # iterate kwargs not passed by plot kind
+                    for k in kind:  # add shared kwargs under each plot kind
+                        if s not in kwargs[k]:  # if kw not specified for kind
+                            kwargs[k][s] = kws_shared[s]  # add under kind kws
+                        else:
+                            warn(f"Shared kwarg {s} already in plot-specific "
+                                 f"arguments for {k}. Keeping {kwargs[k][s]}")
+            kind = [k.lower() for k in kind]  # make not case-sensitive
         fig = {}  # to hold plots
-
-        # Iterate Plot Kinds
-        for k in kind:
-            if k not in kwargs:  # if no plot-specific arguments specified...
-                kwargs[k] = {}  # ...just empty to auto-fill later if needed
+        for k in kind:  # iterate plot kinds
             f_x = scflow.get_plot_fx(k)  # get the right plot function
+            kwargs[k]["layer"] = layer
             if k in genes_plots and "genes" not in kwargs[k]:  # if needed...
                 kwargs[k].update({"genes": genes})  # ...specify "genes"
             if k in colors_plots and "color" not in kwargs[k]:  # if needed...
                 kwargs[k].update({"color": color})  # ...specify grouping
-            if k in ["matrix", "violin", "stacked_violin", "heat"] and (
-                    "col_celltype" not in kwargs[k]):
+            if k in gby and "col_celltype" not in kwargs[k]:
                 kwargs[k]["col_celltype"] = col_celltype  # specify cell type
             if "violin" not in k and k != "umap":
                 kwargs[k]["figsize"] = figsize
-            fig[k] = f_x(self.rna, **kwargs[k])
-        if return_fig  is True:
+            if subset is not None and "dendrogram" in kwargs[k] and kwargs[
+                    k]["dendrogram"] is True and "col_celltype" in kwargs[k]:
+                adata = adata.copy()
+                sc.tl.dendrogram(adata, kwargs[k]["col_celltype"])
+            fig[k] = f_x(adata, **kwargs[k])
+        if return_fig is True:
             return fig
+
+    def get_gex_matrix(self, genes=None, subset=None):
+        """Get gene expression matrix."""
+        adata = self.rna if subset is None else self.rna[subset]
+        g_original = [genes] if isinstance(genes, str) else genes
+        genes = None if genes is None else list(set(
+            genes).intersection(adata.var_names))  # valid gene names
+        if g_original is not None and len(g_original) > genes:
+            warn(f"Genes not found: {set(genes).difference(g_original)}")
+        expr = adata.X if genes is None else adata.var[:, genes].X
+        expr = expr.toarray() if issparse(expr) else expr
+        return pd.DataFrame(expr, columns=genes)
 
     def preprocess(self, inplace=True, **kws_pp):
         """Filter, normalize, and perform QC on data."""
