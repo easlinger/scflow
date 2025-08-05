@@ -6,14 +6,11 @@ Functions for dimensionality reduction & clustering.
 @author: E. N. Aslinger
 """
 
-import os
-import warnings
-import anndata
 import scanpy as sc
 
 
 def cluster(adata, col_celltype="leiden", n_comps=None,
-            kws_pca=None, kws_neighbors=None,
+            kws_pca=None, kws_neighbors=None, layer="log1p",
             kws_cluster=None, kws_umap=None, plot=True, inplace=False):
     """Cluster omics data."""
     kws_pca, kws_neighbors, kws_cluster, kws_umap = [
@@ -22,6 +19,8 @@ def cluster(adata, col_celltype="leiden", n_comps=None,
             kws_cluster, kws_umap]]  # empty dictionaries if no kws
     if inplace is False:
         adata = adata.copy()
+    if layer is not None:
+        adata.X = adata.layers[layer].copy()
     if kws_pca is not False:
         sc.pp.pca(adata, n_comps=n_comps, **kws_pca)  # PCA
         if plot is True:

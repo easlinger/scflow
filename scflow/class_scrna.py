@@ -199,7 +199,8 @@ class Rna(object):
         else:
             return scflow.pp.preprocess(self.rna, inplace=False, **kws_pp)
 
-    def cluster(self, col_celltype="leiden", resolution=1, min_dist=0.5,
+    def cluster(self, col_celltype="leiden", layer="log1p",
+                resolution=1, min_dist=0.5,
                 use_highly_variable=True, inplace=True, **kws):
         """Perform Leiden clustering."""
         for x in ["kws_cluster", "kws_umap"]:
@@ -274,8 +275,10 @@ class Rna(object):
                 "names", append=True)  # concatenate across cell types
         return marker_df
 
-    def annotate(self, annotation_guide, col_celltype=None, layer="log1p",
-                 col_celltype_new=None, overwrite=False, **kwargs):
+    def annotate(self, annotation_guide, marker_genes_dict=None,
+                 col_celltype=None, layer=None,
+                 col_celltype_new=None, overwrite=False,
+                 inplace=True, **kwargs):
         """
         Annotate a clustering result.
 
@@ -292,33 +295,25 @@ class Rna(object):
         if col_celltype_new in self.rna.obs and overwrite is False:
             raise ValueError(f"Cannot overwrite column {col_celltype_new} "
                              "unless overwrite=True")
+        adata = self.rna.copy() if inplace is False else self.rna
         # CellTypist Method (annotation_guide is a string)
         if isinstance(annotation_guide, str) and ".pkl" in annotation_guide:
             suff_ct = "" if col_celltype_new == "" else f"_{col_celltype_new}"
-            adata = self.rna.copy()  # TODO: not memory efficient...
-            if layer is not None:
-                adata.X = adata.layers[layer]
-            predictions = celltypist.annotate(
-                adata, model=annotation_guide, **kwargs)  # CellTypist
-            self.rna.obs = self.rna.obs.join(
-                predictions.predicted_labels["predicted_labels"].to_frame(
-                    f"predicted_labels{suff_ct}"), lsuffix="_o"
-                )  # individual cell-level predictions to .obs
-            celltypist.dotplot(predictions, use_as_reference=col_celltype,
-                               use_as_prediction="predicted_labels")  # plot
-            if "majority_voting" in kwargs and kwargs[
-                    "majority_voting"] is True:  # majority voting labels >
-                self.rna.obs = self.rna.obs.join(
-                    predictions.predicted_labels["majority_voting"].to_frame(
-                        f"majority_voting{suff_ct}"), lsuffix="_o")
-                probs = predictions.probability_matrix.apply(
-                    lambda x: np.nan if predictions.predicted_labels.loc[
-                        x.name]["majority_voting"] == "Heterogeneous" else x[
-                            predictions.predicted_labels.loc[x.name][
-                                "majority_voting"]], axis=1)  # MV probability
-                self.rna.obs = self.rna.obs.join(probs.to_frame(
-                    f"majority_voting_probabilities{suff_ct}"), lsuffix="_o")
-            return predictions
+            if layer != layer_log1p:
+                warn("Layer for CellTypist should be log-normalized, total "
+                     "count-normalized (target_sum=10000) layer. "
+                     f"Specified layer = {layer} (expected = {layer_log1p})")
+                if layer is None:
+                    layer = layer_log1p
+                    warn(f"Changing layer to {layer_log1p}")
+            predictions, adata = scflow.pp.run_celltypist(
+                adata, annotation_guide, col_celltypist_suffix=suff_ct,
+                layer=layer, col_celltype=col_celltype, **kwargs)
+            if inplace is True:
+                self.rna = adata
+                return predictions
+            else:
+                return adata, predictions
         # Marker Overlap Method
         elif marker_genes_dict is not None:
             key = kwargs.pop("key_added", f"rank_genes_groups_{col_celltype}")
@@ -330,7 +325,116 @@ class Rna(object):
                 lambda x: " | ".join(np.array(marker_matches.index.values)[
                     np.where(x == max(x))[0]])))  # find where most overlap
             self.rna.obs.loc[:, col_celltype_new] = self.rna.obs[
-                col_cell_type].replace(new_labels)  # replace with best match
+                col_celltype].replace(new_labels)  # replace with best match
             return marker_matches
         else:
             NotImplementedError("")
+
+
+def run_mapmycells():
+    """Run Map My Cells (Brain Atlas)."""
+    # Write Object & Rectify Gene Names (to EnsemblIDs)
+    if overwrite is True or not os.path.exists(file_new):
+        os.makedirs("data", exist_ok=True)
+        # self.rna.X = self.rna.layers["counts"]
+        self.rna.var_names_make_unique()
+        if "ENSMUSG00000118396" in self.rna.var_names and (
+                "Iqcf3" in self.rna.var_names):
+            self.rna = self.rna[:, list(set(self.rna.var_names).difference(
+                ["ENSMUSG00000118396"]))]  # drop duplicate gene to avoid error?
+        self.rna.write_h5ad(file_new)
+    else:
+        raise ValueError("Must be able to write to use My Cell Mapper")
+    # self.rna.var_names = var_names_orig
+    # self.rna.write_h5ad("scratch/tmp.h5ad")
+    # self.rna.var_names = var_names_orig
+    out_file = "scratch/tmp.h5ad"
+    os.system(
+        f"python -m cell_type_mapper.cli.validate_h5ad --input_path {file_new} "
+        "--layer counts --output_json scratch/out.json "
+        f"--valid_h5ad_path {out_file}")
+
+    # Configuration
+    baseline_precomp_path = "resources/precomputed_stats_ABC_revision_230821.h5"
+    baseline_marker_path = "resources/mouse_markers_230821.json"
+    baseline_json_output_path = "scratch/baseline_json_mapping_output.json"
+    baseline_csv_output_path = "scratch/baseline_csv_mapping_output.csv"
+    baseline_mapping_config = {
+        "query_path": out_file, "tmp_dir": "scratch",
+        "extended_result_path": str(baseline_json_output_path),
+        "csv_result_path": str(baseline_csv_output_path),
+        "max_gb": 10, "cloud_safe": False, "verbose_stdout": False,
+        "type_assignment": {
+            "normalization": "raw",
+            "n_processors": n_processors,
+            "chunk_size": 10000,
+            "bootstrap_iteration": 100,
+            "bootstrap_factor": 0.5,
+            "rng_seed": 233211
+        },
+        "precomputed_stats": {"path": str(baseline_precomp_path)},
+        "query_markers": {"serialized_lookup": str(baseline_marker_path)},
+        "drop_level": None,
+    }
+
+    # Subset by Region (if Desired)
+    if map_my_cells_region_keys is not None:  # subset by region
+        abc_cache = AbcProjectCache.from_cache_dir("scratch")
+        abc_cache.load_latest_manifest()
+        # abc_cache.list_metadata_files(directory=map_my_cells_source)
+        abc_cache.get_directory_metadata(
+            directory=map_my_cells_source.split("-10X")[0] + "-taxonomy")
+        abc_cache.get_metadata_path(
+            directory=map_my_cells_source, file_name="cell_metadata")
+        taxonomy_df = abc_cache.get_metadata_dataframe(
+            directory=map_my_cells_source.split("-10X")[0] + "-taxonomy",
+            file_name="cluster_to_cluster_annotation_membership")
+        alias_to_truth = dict()
+        for cell in taxonomy_df.to_dict(orient="records"):
+            alias = cell["cluster_alias"]
+            level = cell["cluster_annotation_term_set_label"]
+            if alias not in alias_to_truth:
+                alias_to_truth[alias] = dict()
+            alias_to_truth[alias][level] = cell["cluster_annotation_term_label"]
+        cell_metadata = abc_cache.get_metadata_dataframe(
+            directory=map_my_cells_source, file_name="cell_metadata")
+        subset_cells = cell_metadata[pd.concat([
+            cell_metadata.region_of_interest_acronym == i
+            for i in map_my_cells_region_keys], axis=1).T.any()]  # subset meta
+        valid_classes = set([alias_to_truth[x]["CCN20230722_CLAS"]
+                            for x in subset_cells.cluster_alias.values])
+        classes_to_drop = list(set([alias_to_truth[x][
+            "CCN20230722_CLAS"] for x in alias_to_truth if alias_to_truth[x][
+                "CCN20230722_CLAS"] not in valid_classes]))
+        nodes_to_drop = [("class", x) for x in classes_to_drop]
+        baseline_mapping_config.update({
+            "nodes_to_drop": nodes_to_drop,
+            "drop_level": "CCN20230722_SUPT"})
+        print("=======Nodes Being Dropped=======")
+        for pair in nodes_to_drop[:4]:
+            print(pair)
+
+    # Run Mapper
+    mapping_runner = FromSpecifiedMarkersRunner(
+        args=[], input_data=baseline_mapping_config)
+    mapping_runner.run()
+
+    # Programmatic Runner
+    # config_path = "scratch/config.json"
+    # with open(config_path, "w") as f:
+    #     json.dump(baseline_mapping_config, f, indent=2)
+    # os.system("python -m cell_type_mapper.cli.from_specified_markers "
+    #           f"--input_json {config_path}")
+
+    # Output & Clean Up
+    cellmap = pd.read_csv(
+        "scratch/baseline_csv_mapping_output.csv", skiprows=4).set_index(
+            "cell_id").rename_axis(self.rna.obs.index.names)
+    cellmap.columns = [f"cellmap_{i}" for i in cellmap]  # cellmap_ column prefix
+    self.rna.obs = self.rna.obs.join(cellmap).loc[self.rna.obs.index]  # join
+    for x in ["cellmap_class_name", "cellmap_subclass_name"]:
+        self.rna.obs.loc[:, f"{x}"] = self.rna.obs[x].apply(
+            lambda x: " ".join(x.split(" ")[1:]) if all((
+                i in [str(i) for i in np.arange(0, 10)] for i in x.split(
+                    " ")[0])) else x)  # drop pointless #s in front of cell types
+    os.system(f"rm {out_file}")  # remove temporary h5ad input
