@@ -63,10 +63,14 @@ def run_mapbraincells(file_adata, map_my_cells_source="WHB-10X",
                       validate_output_file="scratch/tmp.h5ad",
                       map_my_cells_region_keys=None,
                       map_my_cells_cell_keys=None,
+                      key_drop="CCN20230722",
                       max_gb=10, chunk_size=10000,
                       n_processors=1, seed=233211, **kwargs):
     """
     Run Map My Cells (Allen Brain Atlas).
+
+    See https://github.com/AllenInstitute/cell_type_mapper/blob/update\
+        /docs/250304/examples/mapping_to_subset_of_abc_atlas_data.ipynb
 
     - Make sure to run the following bash commands after activating
       the conda environment you will use.
@@ -107,10 +111,8 @@ abc_atlas_access >& <dir_scratch>/junk.txt
     >>>  except Exception:
     >>>      nan_rows = np.where(np.logical_not(np.isfinite(data)))[0]
 
-    And potentially in
-
-    `_correlation_dot_gpu()` in `distance_utils.py` change
-
+    And potentially in `_correlation_dot_gpu()` in
+    `distance_utils.py` change
 
     >>> try:
     >>>     correlation = torch.matmul(arr0, arr1)
@@ -200,19 +202,19 @@ abc_atlas_access >& <dir_scratch>/junk.txt
             ckeys = cell_metadata.feature_matrix_label.str.contains("|".join(
                 map_my_cells_cell_keys))
             cell_metadata = cell_metadata[ckeys]
-        valid_classes = set([alias_to_truth[x]["CCN20230722_CLAS"]
+        valid_classes = set([alias_to_truth[x][f"{key_drop}_CLAS"]
                             for x in cell_metadata.cluster_alias.values])
         classes_to_drop = list(set([alias_to_truth[x][
-            "CCN20230722_CLAS"] for x in alias_to_truth if alias_to_truth[x][
-                "CCN20230722_CLAS"] not in valid_classes]))
+            f"{key_drop}_CLAS"] for x in alias_to_truth if alias_to_truth[x][
+                f"{key_drop}_CLAS"] not in valid_classes]))
         nodes_to_drop = [("class", x) for x in classes_to_drop]
         baseline_mapping_config.update({
-            # "nodes_to_drop": nodes_to_drop,
-            "drop_level": "CCN20230722_SUPT"})
+            # "drop_level": f"{key_drop}_SUPT",
+            "nodes_to_drop": nodes_to_drop})
         print("=======Nodes Being Dropped=======")
         for pair in nodes_to_drop[:4]:
             print(pair)
-    print(f"{'=' * 80}\nConfiguration{'=' * 80}\n{baseline_mapping_config}")
+    print(f"{'=' * 80}\nConfiguration\n{'=' * 80}\n{baseline_mapping_config}")
 
     # Run Mapper
     mapping_runner = FromSpecifiedMarkersRunner(
