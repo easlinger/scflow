@@ -58,17 +58,80 @@ def run_celltypist(adata, model, layer="log1p", col_celltype=None,
     return predictions, adata
 
 
-def run_mapmycells(file_adata, map_my_cells_source="WHB-10X",
-                   dir_scratch="scratch", dir_resources="resources",
-                   validate_output_file="scratch/tmp.h5ad",
-                   map_my_cells_region_keys=None,
-                   map_my_cells_cell_keys=None, n_processors=None):
-    """Run Map My Cells (ABC Brain Atlas)."""
+def run_mapbraincells(file_adata, map_my_cells_source="WHB-10X",
+                      dir_scratch="scratch", dir_resources="resources",
+                      validate_output_file="scratch/tmp.h5ad",
+                      map_my_cells_region_keys=None,
+                      map_my_cells_cell_keys=None,
+                      max_gb=10, chunk_size=10000,
+                      n_processors=1, seed=233211, **kwargs):
+    """
+    Run Map My Cells (Allen Brain Atlas).
 
-    if n_processors is None:
-        n_processors = os.cpu_count() - 1  # use all but 1 cpu if unspecified
+    - Make sure to run the following bash commands after activating
+      the conda environment you will use.
+
+    - Clone the cell_type_mapper repo into your home directory:
+
+    >>> cd
+    >>> git clone git@github.com:AllenInstitute/cell_type_mapper.git
+
+    - Navigate to the folder containing this notebook.
+
+    - Install ABC Atlas (from same directory as this notebook):
+
+    >>> pip install -U git+https://github.com/alleninstitute/\
+abc_atlas_access >& <dir_scratch>/junk.txt
+
+      Replace <dir_scratch> with the value passed to the
+      `dir_scratch` argument.
+
+    - Pull lookup files (from the same directory as this notebook):
+
+    >>> cd resources
+    >>> wget https://allen-brain-cell-atlas.s3-us-west-2.amazonaws.com\
+    /mapmycells/WMB-10X/20240831/mouse_markers_230821.json
+    >>> wget https://allen-brain-cell-atlas.s3-us-west-2.amazonaws.com\
+    /mapmycells/WMB-10X/20240831/precomputed_stats_ABC_\
+    revision_230821.h5
+
+    Note: To use GPU + Torch, you may need to alter the file
+    cell_type_mapper/src/cell_type_mapper/cell_by_gene/cell_by_gene.py
+    line `np.where(np.logical_not(np.isfinite(data)))[0]`
+
+    to read instead
+
+    >>>  try:
+    >>>      nan_rows = np.where(
+    >>>          np.logical_not(np.isfinite(data.cpu().numpy())))[0]
+    >>>  except Exception:
+    >>>      nan_rows = np.where(np.logical_not(np.isfinite(data)))[0]
+
+    And potentially in
+
+    `_correlation_dot_gpu()` in `distance_utils.py` change
+
+
+    >>> try:
+    >>>     correlation = torch.matmul(arr0, arr1)
+    >>> except RuntimeError as err:
+    >>>     if "CUBLAS_STATUS_NOT_INITIALIZED" in str(err):
+    >>>         arr0_cpu = arr0.cpu()
+    >>>         arr1_cpu = arr1.cpu()
+    >>>         correlation = torch.matmul(arr0_cpu, arr1_cpu).to(
+    >>>             arr0.device)
+    >>> else:
+    >>>     raise
+
+    """
+    # Make Needed Directories
     os.makedirs(dir_scratch, exist_ok=True)
     os.makedirs(dir_resources, exist_ok=True)
+
+    # Keep Threads from Competing (numpy)
+    os.environ["NUMEXPR_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+    os.environ["OMP_NUM_THREADS"] = "1"
 
     # Genes to EnsemblIDs?
     if validate_output_file is not None:
@@ -92,18 +155,19 @@ def run_mapmycells(file_adata, map_my_cells_source="WHB-10X",
         "query_path": file_adata_use, "tmp_dir": dir_scratch,
         "extended_result_path": str(baseline_json_output_path),
         "csv_result_path": str(baseline_csv_output_path),
-        "max_gb": 10, "cloud_safe": False, "verbose_stdout": False,
+        "max_gb": max_gb, "cloud_safe": False, "verbose_stdout": False,
         "type_assignment": {
             "normalization": "raw",
             "n_processors": n_processors,
-            "chunk_size": 10000,
+            "chunk_size": chunk_size,
             "bootstrap_iteration": 100,
             "bootstrap_factor": 0.5,
-            "rng_seed": 233211
+            "rng_seed": seed
         },
         "precomputed_stats": {"path": str(baseline_precomp_path)},
         "query_markers": {"serialized_lookup": str(baseline_marker_path)},
         "drop_level": None,
+        **kwargs
     }
 
     # Subset by Region (if Desired)
@@ -143,7 +207,7 @@ def run_mapmycells(file_adata, map_my_cells_source="WHB-10X",
                 "CCN20230722_CLAS"] not in valid_classes]))
         nodes_to_drop = [("class", x) for x in classes_to_drop]
         baseline_mapping_config.update({
-            "nodes_to_drop": nodes_to_drop,
+            # "nodes_to_drop": nodes_to_drop,
             "drop_level": "CCN20230722_SUPT"})
         print("=======Nodes Being Dropped=======")
         for pair in nodes_to_drop[:4]:
