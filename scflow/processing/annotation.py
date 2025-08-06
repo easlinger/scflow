@@ -228,8 +228,12 @@ abc_atlas_access >& <dir_scratch>/junk.txt
                           skiprows=4).set_index("cell_id").rename_axis(
                               adata.obs.index.names)  # read annotation output
     cellmap.columns = [f"cellmap_{i}" for i in cellmap]
+    if len(adata.obs.columns.intersection(cellmap.columns)) > 0:
+        adata.obs = adata.obs.drop(list(adata.obs.columns.intersection(
+            cellmap.columns)), axis=1)
     adata.obs = adata.obs.join(cellmap).loc[adata.obs.index]  # join
     for x in ["cellmap_class_name", "cellmap_subclass_name"]:
+        adata.obs.loc[:, f"{x}_original"] = adata.obs[x].copy()
         adata.obs.loc[:, f"{x}"] = adata.obs[x].apply(
             lambda x: " ".join(x.split(" ")[1:]) if all((
                 i in [str(i) for i in np.arange(0, 10)] for i in x.split(

@@ -107,7 +107,7 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
                 if x in kws_pp:
                     if verbose is True:
                         print(f"***Preprocessing {x}: {kws_pp[x]}...")
-                    scflow.pp.preprocess(adata[x], **{
+                    adata[x] = scflow.pp.preprocess(adata[x], **{
                         "plot_qc": plot_qc, **kws_pp[x], "inplace": True})
         if kws_cluster is not None:
             print("\n\n")
@@ -119,7 +119,7 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
                 if x in kws_cluster:
                     if verbose is True:
                         print(f"***Clustering {x}: {kws_cluster[x]}...")
-                    scflow.pp.cluster(adata[x], **{
+                    adata[x] = scflow.pp.cluster(adata[x], **{
                         "plot": plot_qc, **kws_cluster[x], "inplace": True})
         adata = anndata.concat(
             adata, axis=axis, join=join, merge=merge, uns_merge=uns_merge,

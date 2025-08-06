@@ -22,7 +22,7 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
                normalize=True, min_max_counts=None,
                vars_regress_out=None, target_sum=1e4, max_fraction=0.05,
                exclude_highly_expressed=False, n_top_genes=2000, max_mt=None,
-               zero_center=True, max_value=None, plot_qc=True, inplace=False):
+               zero_center=True, max_value=None, plot_qc=True, inplace=True):
     """Filter, normalize, and perform QC on scRNA-seq data."""
     if isinstance(min_max_genes, str):
         if min_max_genes.lower() not in ["min", "max"]:
@@ -104,11 +104,12 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
             exclude_highly_expressed=exclude_highly_expressed,
             max_fraction=max_fraction)
         sc.pp.log1p(adata)
+        adata.layers[layer_log1p] = adata.X.copy()
     if vars_regress_out is not None:
         print("\n***Regressing out covariates...\n")
         sc.pp.regress_out(
             adata, vars_regress_out)  # e.g. ["total_counts", "pct_counts_mt"]
-    adata.layers[layer_log1p] = adata.X.copy()
+        adata.layers[layer_log1p] = adata.X.copy()
 
     # HVGs
     print("\n***Detecting highly variable genes...\n")
