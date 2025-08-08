@@ -51,15 +51,13 @@ class Rna(object):
                 function (if passed list or dict to `file_path`).
 
         """
-        if kws_read is None:
-            kws_read = {}
-        if kws_integrate is None:
-            kws_integrate = {}
+        kws_read, kws_integrate = [x if x else {} for x in [
+            kws_read, kws_integrate]]  # empty dictionaries if kws not passed
         if "var_names" in kwargs:
             kws_read["var_names"] = kwargs.pop("var_names")
-        if isinstance(file_path, (AnnData, MuData)):
+        if isinstance(file_path, (AnnData, MuData)):  # just load Ann/MuData
             adata = file_path.copy()
-        elif isinstance(file_path, (list, dict)):
+        elif isinstance(file_path, (list, dict)):  # integrate samples/batches
             if col_sample is None:
                 col_sample = "sample"
             if not isinstance(kws_read, list):  # if not sample-specific kws
@@ -68,12 +66,12 @@ class Rna(object):
             adata = [file_path[x] if isinstance(file_path[x], (
                 AnnData, MuData)) else scflow.pp.read_scrna(
                     file_path[x], **kws_read[x]) for x in file_path]  # read
-            adata = scflow.pp.integrate(
-                adata, col_sample=col_sample, col_batch=col_batch,
-                **kws_integrate)  # integrate with Harmony
-        else:
+            kws_integrate.update(dict(col_sample=col_sample,
+                                      col_batch=col_batch))
+            adata = scflow.pp.integrate(adata, **kws_integrate)  # Harmony
+        else:  # read single file
             adata = scflow.pp.read_scrna(file_path, **kws_read)
-        if isinstance(file_path, (AnnData, MuData)):
+        if isinstance(file_path, (AnnData, MuData)):  # if passed object...
             if "var_names" in kws_read:
                 if assay is not None:
                     if adata[assay].var.index.names[0] != kws_read[
@@ -90,7 +88,7 @@ class Rna(object):
                       "col_batch": col_batch,
                       "kws_read": kws_read,
                       "kws_integrate": kws_integrate,
-                      "col_celltype": col_celltype}
+                      "col_celltype": col_celltype}  # object information
         self.assay = assay
         self.rna = adata
         # self._adata = adata
@@ -124,10 +122,28 @@ class Rna(object):
     #         self._rna = self._adata
 
     def plot(self, kind=None, col_celltype=None, genes=None, layer=None,
-             color=None, subset=None,
+             color=None, subset=None, by_group=None, title=None,
              figsize=None, return_fig=False, **kwargs):
-        """Plot."""
+        """
+        Plot.
 
+        Examples:
+
+            >>> self.plot(kind="violin", genes=sig_contrast_genes,
+            >>>           by_group="Group", col_celltype="leiden",
+            >>>           figsize=(20, 15), col_wrap=4, xlabel=None,
+            >>>           rotation=45, hspace=0.5, top=0.95,
+            >>>           bottom=0.1, left=0)
+        """
+        if by_group not in [None, False]:  # multiple plots by subsets
+            outs = {}
+            for g in self.rna.obs[by_group].unique():
+                outs[g] = self.plot(
+                    kind=kind, col_celltype=col_celltype, genes=genes,
+                    layer=layer, color=color, figsize=figsize,
+                    return_fig=return_fig, by_group=None, title=g,
+                    subset=self.rna.obs[by_group] == g, **kwargs)
+            return outs
         # Process Arguments
         adata = self.rna
         if subset is not None:
@@ -161,6 +177,8 @@ class Rna(object):
             kind = [k.lower() for k in kind]  # make not case-sensitive
         fig = {}  # to hold plots
         for k in kind:  # iterate plot kinds
+            ttl = title[k] if isinstance(
+                title, dict) and k in title else title  # plot title
             f_x = scflow.get_plot_fx(k)  # get the right plot function
             kwargs[k]["layer"] = layer
             if k in genes_plots and "genes" not in kwargs[k]:  # if needed...
@@ -169,13 +187,13 @@ class Rna(object):
                 kwargs[k].update({"color": color})  # ...specify grouping
             if k in gby and "col_celltype" not in kwargs[k]:
                 kwargs[k]["col_celltype"] = col_celltype  # specify cell type
-            if "violin" not in k and k != "umap":
+            if k != "umap":
                 kwargs[k]["figsize"] = figsize
             if subset is not None and "dendrogram" in kwargs[k] and kwargs[
                     k]["dendrogram"] is True and "col_celltype" in kwargs[k]:
                 adata = adata.copy()
                 sc.tl.dendrogram(adata, kwargs[k]["col_celltype"])
-            fig[k] = f_x(adata, **kwargs[k])
+            fig[k] = f_x(adata, title=ttl, **kwargs[k])
         if return_fig is True:
             return fig
 
@@ -236,10 +254,10 @@ class Rna(object):
         if inplace is False:
             return adata
 
-    def get_markers_df(self, key_celltype=None, col_celltype=None,
-                       n_genes=None, p_threshold=None,
-                       log2fc_threshold=None,
-                       log2fc_threshold_abs=False, **kwargs):
+    def get_markers_df(self, col_celltype=None, n_genes=None,
+                       p_threshold=None, log2fc_threshold=None,
+                       log2fc_threshold_abs=False,
+                       key_celltype=None, **kwargs):
         """Get (a subset of) a marker genes dataframe."""
         if col_celltype is None:
             col_celltype = self._info["col_celltype"]

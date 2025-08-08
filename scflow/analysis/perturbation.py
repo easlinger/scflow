@@ -13,6 +13,7 @@ import scanpy as sc
 import pertpy as pt
 import pandas as pd
 import numpy as np
+import scflow
 
 
 def analyze_perturbation_distance(adata, col_condition, key_pca="X_pca",
@@ -50,10 +51,17 @@ def analyze_perturbation_distance(adata, col_condition, key_pca="X_pca",
 def analyze_perturbation_cell_composition(adata, col_celltype,
                                           col_condition, col_sample=None,
                                           formula=None,
+                                          generate_sample_level=True,
                                           key_modality="coda",
+                                          palette="tab20",
                                           reference_cell_type="automatic",
-                                          absence_threshold=0.1, est_fdr=0.1):
+                                          absence_threshold=0.1, est_fdr=0.1,
+                                          plot_facets=True, label_rotation=90,
+                                          level_order=None, figsize=None):
     """Analyze perturbation-related shifts in cell type composition."""
+    if figsize is None:
+        figsize = (20, 20)
+    figs = {}
     if isinstance(col_condition, str):
         col_condition = [col_condition]
     if len(col_condition) > 1:
@@ -64,7 +72,7 @@ def analyze_perturbation_cell_composition(adata, col_celltype,
             col_condition) > 1 else col_condition
     sccoda_model = pt.tl.Sccoda()
     sccoda_data = sccoda_model.load(
-        adata, type="cell_level", generate_sample_level=True,
+        adata, type="cell_level", generate_sample_level=generate_sample_level,
         cell_type_identifier=col_celltype, sample_identifier=col_sample,
         covariate_obs=col_condition)
     sccoda_data = sccoda_model.prepare(
@@ -73,54 +81,70 @@ def analyze_perturbation_cell_composition(adata, col_celltype,
         reference_cell_type=reference_cell_type,
         automatic_reference_absence_threshold=absence_threshold,)
     sccoda_model = pt.tl.Sccoda()
+    for c in col_condition:
+        figs["box"] = sccoda_model.plot_boxplots(
+            sccoda_data, modality_key=key_modality, feature_name=c,
+            add_dots=True, plot_facets=plot_facets, palette=palette,
+            level_order=level_order, return_fig=True)
+        if label_rotation not in [None, False]:  # rotate axis labels?
+            for a in figs["box"].fig.axes:
+                a.tick_params(axis="x", labelrotation=label_rotation)
+        plt.show()
     sccoda_model.run_nuts(sccoda_data, modality_key=key_modality)
-    sccoda_model.set_fdr(sccoda_data, modality_key=key_modality,
-                         est_fdr=est_fdr)
+    if est_fdr not in [None, False]:
+        sccoda_model.set_fdr(sccoda_data, modality_key=key_modality,
+                             est_fdr=est_fdr)
+    sccoda_model.summary(sccoda_data, modality_key=key_modality)
+    credible_effects = sccoda_model.credible_effects(
+        sccoda_data, modality_key=key_modality)
 
-    def _run_comps(sccoda_data, sccoda_model, adata, reference,
-                   col_condition, formula, key_modality="coda", est_fdr=0.1):
-        """Run comparisons (adapted from `pertpy` tutorial)."""
-        comparison_groups = [g for g in adata.obs[col_condition[
-            0]].unique() if g != reference]
-        effect_df = pd.DataFrame(
-            {"log2-fold change": [], "Cell Type": [], "Reference": [],
-             "Comp. Group": [], "Final Parameter": []})
-        for comp_group in comparison_groups:
-            print(sccoda_data[key_modality].varm)
-            group_effects = sccoda_data[key_modality].varm[
-                f"effect_df_{formula}[T.{comp_group}]"][[
-                    "log2-fold change", "Final Parameter"]]
-            group_effects = group_effects[
-                group_effects["Final Parameter"] != 0]
-            group_effects["Cell Type"] = group_effects.index
-            group_effects["Reference"] = reference
-            group_effects["Comp. Group"] = comp_group
-            effect_df = pd.concat([effect_df, group_effects])
-        if not effect_df.empty:
-            fig = sccoda_model.plot_effects_barplot(
-                sccoda_data, return_fig=True, show=False)
-            fig.set_size_inches(12, 4)
-            fig.show()
-        else:
-            print(f"No significant effects for reference {reference}")
-        return effect_df
+    # def _run_comps(sccoda_data, sccoda_model, adata, reference,
+    #                col_condition, formula, key_modality="coda",
+    #                est_fdr=0.1):
+    #     """Run comparisons (adapted from `pertpy` tutorial)."""
+    #     comparison_groups = [g for g in adata.obs[col_condition[
+    #         0]].unique() if g != reference]
+    #     effect_df = pd.DataFrame(
+    #         {"log2-fold change": [], "Cell Type": [], "Reference": [],
+    #          "Comp. Group": [], "Final Parameter": []})
+    #     for comp_group in comparison_groups:
+    #         print(sccoda_data[key_modality].varm)
+    #         group_effects = sccoda_data[key_modality].varm[
+    #             f"effect_df_{formula}[{comp_group}]"][[
+    #                 "log2-fold change", "Final Parameter"]]
+    #         group_effects = group_effects[
+    #             group_effects["Final Parameter"] != 0]
+    #         group_effects["Cell Type"] = group_effects.index
+    #         group_effects["Reference"] = reference
+    #         group_effects["Comp. Group"] = comp_group
+    #         effect_df = pd.concat([effect_df, group_effects])
+    #     if not effect_df.empty:
+    #         fig = sccoda_model.plot_effects_barplot(
+    #             sccoda_data, return_fig=True, show=False)
+    #         fig.set_size_inches(12, 4)
+    #         fig.show()
+    #     else:
+    #         print(f"No significant effects for reference {reference}")
+    #     return effect_df
 
-    credible_effects = pd.DataFrame({
-        "log2-fold change": [], "Cell Type": [], "Reference": [],
-        "Comp. Group": [], "Final Parameter": []})
-    for reference in adata.obs[col_condition[0]].unique():
-        effect_df = _run_comps(sccoda_data, sccoda_model, adata, reference,
-                               col_condition, formula,
-                               key_modality=key_modality, est_fdr=est_fdr)
-        credible_effects = pd.concat([credible_effects, effect_df])
-    return sccoda_data, sccoda_model, credible_effects
+    # credible_effects = pd.DataFrame({
+    #     "log2-fold change": [], "Cell Type": [], "Reference": [],
+    #     "Comp. Group": [], "Final Parameter": []})
+    # for reference in adata.obs[col_condition[0]].unique():
+    #     effect_df = _run_comps(sccoda_data, sccoda_model, adata, reference,
+    #                            col_condition, formula,
+    #                            key_modality=key_modality, est_fdr=est_fdr)
+    #     credible_effects = pd.concat([credible_effects, effect_df])
+    return sccoda_model, sccoda_data, credible_effects, figs
 
 
 def run_deg_edgr(adata, col_condition, col_covariate=None, formula=None,
                  key_treatment=None, key_control=None,
                  col_sample=None, col_celltype=None,  # for pseudo-bulking
-                 log2fc_thresh=0, n_top_vars=8, layer="counts", **kwargs):
+                 log2fc_thresh=0, n_top_vars=8, layer="counts",
+                 fig_title=None, **kwargs):
     """Run edgeR differential gene expression testing."""
+    figs = {}
     if formula is None:
         formula = "~" + "+".join([col_condition, col_covariate]) if (
             col_covariate is not None) else f"~{col_condition}"
@@ -150,16 +174,25 @@ def run_deg_edgr(adata, col_condition, col_covariate=None, formula=None,
         res_df = edgr.test_contrasts(edgr.contrast(
             column=col_condition, baseline=key_control,
             group_to_compare=key_treatment))
-        edgr.plot_volcano(res_df, log2fc_thresh=log2fc_thresh)
-        edgr.plot_paired(adata, results_df=res_df, n_top_vars=n_top_vars,
-                         groupby=col_condition, pairedby=col_covariate)
+        figs["volcano"] = edgr.plot_volcano(
+            res_df, log2fc_thresh=log2fc_thresh, return_fig=True)
+        if fig_title is not None:
+            figs["volcano"].suptitle(fig_title)
+        figs["paired"] = edgr.plot_paired(
+            adata, results_df=res_df, n_top_vars=n_top_vars,
+            groupby=col_condition, pairedby=col_covariate, return_fig=True)
+        if fig_title is not None:
+            figs["paired"].suptitle(fig_title)
     else:
         # res_df = None
         res_df = edgr.compare_groups(
             adata, column=col_condition, baseline=key_control,
             groups_to_compare=key_treatment, layer=layer)
-        edgr.plot_multicomparison_fc(res_df, figsize=(12, 1.5))
-    return res_df
+        figs["mcf"] = edgr.plot_multicomparison_fc(
+            res_df, figsize=(12, 1.5), return_fig=True)
+        if fig_title is not None:
+            figs["mcf"].suptitle(fig_title)
+    return res_df, figs
 
 
 def run_mixscape(adata, col_condition, col_guide,
@@ -191,9 +224,9 @@ def run_mixscape(adata, col_condition, col_guide,
     _ = adata.layers.pop("original")
 
 
-def run_dialogue_mcp(adata, col_celltype, col_counts, col_condition=None,
-                     col_sample=None, n_mpcs=3, col_confounder=None,
-                     layer="counts", cmap="coolwarm",
+def run_dialogue_mcp(adata, col_celltype, col_counts="total_counts",
+                     col_condition=None, col_sample=None, col_confounder=None,
+                     n_mpcs=3, layer="counts", cmap="coolwarm",
                      mlm_threshold=0.7, p_threshold=0.05):
     """Run Dialogue to find multi-cellular programs."""
     adata = adata.copy()
