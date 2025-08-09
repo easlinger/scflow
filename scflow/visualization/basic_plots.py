@@ -32,7 +32,8 @@ def plot_heat(adata, genes=None, col_celltype=None, title=None, **kwargs):
     if title is not None:
         kwargs["show"] = False  # so can return axes
     fig = sc.pl.heatmap(adata, genes, col_celltype, **kwargs)
-    fig["heatmap_ax"].set_title(title)
+    if title is not None:
+        fig["heatmap_ax"].set_title(title)
     if show is True:
         plt.show()
     return fig

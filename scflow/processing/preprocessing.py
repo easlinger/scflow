@@ -35,6 +35,7 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
         warnings.warn("`layer_counts` not found in `adata.layers`. "
                       "Assuming current `adata.X` is integer counts.")
     if normalize is True:
+        print(f"Activating layer {layer_counts}")
         adata.X = adata.layers[layer_counts].copy()  # ensure using counts
     try:
         adata.var_names_make_unique()

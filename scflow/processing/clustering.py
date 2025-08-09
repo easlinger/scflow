@@ -9,7 +9,8 @@ Functions for dimensionality reduction & clustering.
 import scanpy as sc
 
 
-def cluster(adata, col_celltype="leiden", n_comps=None,
+def cluster(adata, col_celltype="leiden",
+            n_comps=None, resolution=1, min_dist=0.5,
             kws_pca=None, kws_neighbors=None, layer="log1p",
             kws_cluster=None, kws_umap=None, plot=True, inplace=False):
     """Cluster omics data."""
@@ -22,10 +23,15 @@ def cluster(adata, col_celltype="leiden", n_comps=None,
     if layer is not None:
         adata.X = adata.layers[layer].copy()
     if kws_pca is not False:
+        print("***Calculating PCA...")
         sc.pp.pca(adata, n_comps=n_comps, **kws_pca)  # PCA
         if plot is True:
             sc.pl.pca_variance_ratio(adata, log=True)
+    print("***Constructing neighborhood...")
     sc.pp.neighbors(adata, **kws_neighbors)  # neighbors
-    sc.tl.umap(adata, **kws_umap)  # UMAP
-    sc.tl.leiden(adata, key_added=col_celltype, **kws_cluster)  # Leiden
+    print("***Embedding UMAP...")
+    sc.tl.umap(adata, min_dist=min_dist, **kws_umap)  # UMAP
+    print(f"***Performing Leiden clustering with resolution {resolution}...")
+    sc.tl.leiden(adata, key_added=col_celltype,
+                 resolution=resolution, **kws_cluster)  # Leiden
     return adata

@@ -53,6 +53,7 @@ class Rna(object):
         """
         kws_read, kws_integrate = [x if x else {} for x in [
             kws_read, kws_integrate]]  # empty dictionaries if kws not passed
+        integrated = False
         if "var_names" in kwargs:
             kws_read["var_names"] = kwargs.pop("var_names")
         if isinstance(file_path, (AnnData, MuData)):  # just load Ann/MuData
@@ -69,6 +70,7 @@ class Rna(object):
             kws_integrate.update(dict(col_sample=col_sample,
                                       col_batch=col_batch))
             adata = scflow.pp.integrate(adata, **kws_integrate)  # Harmony
+            integrated = True
         else:  # read single file
             adata = scflow.pp.read_scrna(file_path, **kws_read)
         if isinstance(file_path, (AnnData, MuData)):  # if passed object...
@@ -88,6 +90,7 @@ class Rna(object):
                       "col_batch": col_batch,
                       "kws_read": kws_read,
                       "kws_integrate": kws_integrate,
+                      "integrated": integrated,
                       "col_celltype": col_celltype}  # object information
         self.assay = assay
         self.rna = adata
@@ -197,7 +200,7 @@ class Rna(object):
         if return_fig is True:
             return fig
 
-    def get_gex_matrix(self, genes=None, subset=None):
+    def get_gex_matrix(self, genes=None, subset=None, layer=None):
         """Get gene expression matrix."""
         adata = self.rna if subset is None else self.rna[subset]
         g_original = [genes] if isinstance(genes, str) else genes
@@ -205,7 +208,8 @@ class Rna(object):
             genes).intersection(adata.var_names))  # valid gene names
         if g_original is not None and len(g_original) > genes:
             warn(f"Genes not found: {set(genes).difference(g_original)}")
-        expr = adata.X if genes is None else adata.var[:, genes].X
+        expr = (adata if genes is None else adata[:, genes])
+        expr = expr.X if layer is None else expr.layers[layer].copy()
         expr = expr.toarray() if issparse(expr) else expr
         return pd.DataFrame(expr, columns=genes)
 
@@ -221,21 +225,30 @@ class Rna(object):
                 resolution=1, min_dist=0.5,
                 use_highly_variable=True, inplace=True, **kws):
         """Perform Leiden clustering."""
+        adata = self.rna if inplace is True else self.rna.copy()
+        if layer is not None:
+            adata.X = adata.layers[layer].copy()
         for x in ["kws_cluster", "kws_umap"]:
             if x not in kws:
                 kws.update({x: {}})
-        kws["kws_cluster"]["resolution"] = resolution
-        kws["kws_umap"]["min_dist"] = min_dist
         if "kws_pca" not in kws:
-            kws["kws_pca"] = {}
+            kws["kws_pca"] = {} if self._info[
+                "integrated"] is False else False
+        else:
+            if self._info["integrated"] is True and kws[
+                    "kws_pca"] is not False:
+                raise ValueError(
+                    "Integrated datasets should use `kws_pca=False`")
         if kws["kws_pca"] is not False:
             kws["kws_pca"]["use_highly_variable"] = use_highly_variable
+        adata = scflow.pp.cluster(adata, resolution=resolution,
+                                  min_dist=min_dist, inplace=True, **kws)
+        if self._info["col_celltype"] is None:  # update default column
+            self._info["col_celltype"] = col_celltype
         if inplace is True:
-            self.rna = scflow.pp.cluster(self.rna, inplace=True, **kws)
-            if self._info["col_celltype"] is None:  # update default column
-                self._info["col_celltype"] = col_celltype
+            self.rna = adata
         else:
-            return scflow.pp.cluster(self.rna, inplace=False, **kws)
+            return adata
 
     def find_markers(self, n_genes=None, rankby_abs=False,
                      col_celltype=None, key_added=None, plot=True,
@@ -268,7 +281,7 @@ class Rna(object):
             key_celltype = [key_celltype]  # ensure iterable
         if isinstance(log2fc_threshold, (int, float)) or (
                 log2fc_threshold is None):  # if just max bound or no bound...
-            log2fc_threshold = [None, log2fc_threshold]  # convert to mix/max
+            log2fc_threshold = [log2fc_threshold, None]  # convert to mix/max
         marker_df = []  # to concatenate later
         for x in key_celltype:
             if log2fc_threshold_abs is False or (
@@ -347,112 +360,3 @@ class Rna(object):
             return marker_matches
         else:
             NotImplementedError("")
-
-
-def run_mapmycells():
-    """Run Map My Cells (Brain Atlas)."""
-    # Write Object & Rectify Gene Names (to EnsemblIDs)
-    if overwrite is True or not os.path.exists(file_new):
-        os.makedirs("data", exist_ok=True)
-        # self.rna.X = self.rna.layers["counts"]
-        self.rna.var_names_make_unique()
-        if "ENSMUSG00000118396" in self.rna.var_names and (
-                "Iqcf3" in self.rna.var_names):
-            self.rna = self.rna[:, list(set(self.rna.var_names).difference(
-                ["ENSMUSG00000118396"]))]  # drop duplicate gene to avoid error?
-        self.rna.write_h5ad(file_new)
-    else:
-        raise ValueError("Must be able to write to use My Cell Mapper")
-    # self.rna.var_names = var_names_orig
-    # self.rna.write_h5ad("scratch/tmp.h5ad")
-    # self.rna.var_names = var_names_orig
-    out_file = "scratch/tmp.h5ad"
-    os.system(
-        f"python -m cell_type_mapper.cli.validate_h5ad --input_path {file_new} "
-        "--layer counts --output_json scratch/out.json "
-        f"--valid_h5ad_path {out_file}")
-
-    # Configuration
-    baseline_precomp_path = "resources/precomputed_stats_ABC_revision_230821.h5"
-    baseline_marker_path = "resources/mouse_markers_230821.json"
-    baseline_json_output_path = "scratch/baseline_json_mapping_output.json"
-    baseline_csv_output_path = "scratch/baseline_csv_mapping_output.csv"
-    baseline_mapping_config = {
-        "query_path": out_file, "tmp_dir": "scratch",
-        "extended_result_path": str(baseline_json_output_path),
-        "csv_result_path": str(baseline_csv_output_path),
-        "max_gb": 10, "cloud_safe": False, "verbose_stdout": False,
-        "type_assignment": {
-            "normalization": "raw",
-            "n_processors": n_processors,
-            "chunk_size": 10000,
-            "bootstrap_iteration": 100,
-            "bootstrap_factor": 0.5,
-            "rng_seed": 233211
-        },
-        "precomputed_stats": {"path": str(baseline_precomp_path)},
-        "query_markers": {"serialized_lookup": str(baseline_marker_path)},
-        "drop_level": None,
-    }
-
-    # Subset by Region (if Desired)
-    if map_my_cells_region_keys is not None:  # subset by region
-        abc_cache = AbcProjectCache.from_cache_dir("scratch")
-        abc_cache.load_latest_manifest()
-        # abc_cache.list_metadata_files(directory=map_my_cells_source)
-        abc_cache.get_directory_metadata(
-            directory=map_my_cells_source.split("-10X")[0] + "-taxonomy")
-        abc_cache.get_metadata_path(
-            directory=map_my_cells_source, file_name="cell_metadata")
-        taxonomy_df = abc_cache.get_metadata_dataframe(
-            directory=map_my_cells_source.split("-10X")[0] + "-taxonomy",
-            file_name="cluster_to_cluster_annotation_membership")
-        alias_to_truth = dict()
-        for cell in taxonomy_df.to_dict(orient="records"):
-            alias = cell["cluster_alias"]
-            level = cell["cluster_annotation_term_set_label"]
-            if alias not in alias_to_truth:
-                alias_to_truth[alias] = dict()
-            alias_to_truth[alias][level] = cell["cluster_annotation_term_label"]
-        cell_metadata = abc_cache.get_metadata_dataframe(
-            directory=map_my_cells_source, file_name="cell_metadata")
-        subset_cells = cell_metadata[pd.concat([
-            cell_metadata.region_of_interest_acronym == i
-            for i in map_my_cells_region_keys], axis=1).T.any()]  # subset meta
-        valid_classes = set([alias_to_truth[x]["CCN20230722_CLAS"]
-                            for x in subset_cells.cluster_alias.values])
-        classes_to_drop = list(set([alias_to_truth[x][
-            "CCN20230722_CLAS"] for x in alias_to_truth if alias_to_truth[x][
-                "CCN20230722_CLAS"] not in valid_classes]))
-        nodes_to_drop = [("class", x) for x in classes_to_drop]
-        baseline_mapping_config.update({
-            "nodes_to_drop": nodes_to_drop,
-            "drop_level": "CCN20230722_SUPT"})
-        print("=======Nodes Being Dropped=======")
-        for pair in nodes_to_drop[:4]:
-            print(pair)
-
-    # Run Mapper
-    mapping_runner = FromSpecifiedMarkersRunner(
-        args=[], input_data=baseline_mapping_config)
-    mapping_runner.run()
-
-    # Programmatic Runner
-    # config_path = "scratch/config.json"
-    # with open(config_path, "w") as f:
-    #     json.dump(baseline_mapping_config, f, indent=2)
-    # os.system("python -m cell_type_mapper.cli.from_specified_markers "
-    #           f"--input_json {config_path}")
-
-    # Output & Clean Up
-    cellmap = pd.read_csv(
-        "scratch/baseline_csv_mapping_output.csv", skiprows=4).set_index(
-            "cell_id").rename_axis(self.rna.obs.index.names)
-    cellmap.columns = [f"cellmap_{i}" for i in cellmap]  # cellmap_ column prefix
-    self.rna.obs = self.rna.obs.join(cellmap).loc[self.rna.obs.index]  # join
-    for x in ["cellmap_class_name", "cellmap_subclass_name"]:
-        self.rna.obs.loc[:, f"{x}"] = self.rna.obs[x].apply(
-            lambda x: " ".join(x.split(" ")[1:]) if all((
-                i in [str(i) for i in np.arange(0, 10)] for i in x.split(
-                    " ")[0])) else x)  # drop pointless #s in front of cell types
-    os.system(f"rm {out_file}")  # remove temporary h5ad input

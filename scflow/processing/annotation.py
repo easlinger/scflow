@@ -9,6 +9,7 @@ Functions for annotating single-cell data.
 import os
 from warnings import warn
 import celltypist
+import ensembl_rest
 try:
     from cell_type_mapper.cli.from_specified_markers import (
         FromSpecifiedMarkersRunner)
@@ -16,6 +17,8 @@ try:
         AbcProjectCache)
 except ModuleNotFoundError:
     pass
+import requests
+import json
 import scanpy as sc
 import pandas as pd
 import numpy as np
@@ -56,6 +59,46 @@ def run_celltypist(adata, model, layer="log1p", col_celltype=None,
         adata.obs = adata.obs.drop(list(col_overlap), axis=1)
     adata.obs = adata.obs.join(obs_add)
     return predictions, adata
+
+
+def annotate_by_toppgene(genes, categories=None,
+                         min_genes=1, max_results=1000,
+                         p_threshold=0.05, correction="FDRBH",
+                         translate_gene_symbols=True, species="human"):
+    """Annotate by marker overlap with ToppGene atlases."""
+    if isinstance(genes, dict):  # if multiple sets of genes
+        out = pd.concat([annotate_by_toppgene(
+            genes[g], categories=categories, min_genes=min_genes,
+            max_results=max_results, p_threshold=p_threshold,
+            correction=correction,
+            translate_gene_symbols=translate_gene_symbols, species=species)
+                         for g in genes], keys=genes, names=["Gene Set"])
+        return out
+    if categories is None:
+        categories = ["Coexpression", "CoexpressionAtlas", "Pathway",
+                      "Pubmed", "ToppCell"]
+        if species in ["human", "mouse"]:
+            categories += [
+                "HumanPheno" if species == "human" else "MousePheno"]
+    if translate_gene_symbols is True:
+        ids = [ensembl_rest.symbol_lookup(species=species, symbol=g)["id"]
+               for g in genes]
+        response = requests.post(
+            "https://toppgene.cchmc.org/API/lookup", json={"Symbols": ids},
+            headers={"Content-Type": "application/json"})
+        lookup = response.json()
+        genes = [int(gene["Entrez"]) for gene in lookup.get("Genes", [])]
+    params = {"Genes": genes, "MaxResults": max_results}
+    response = requests.post(
+        "https://toppgene.cchmc.org/API/enrich",
+        json=params, headers={"Content-Type": "application/json"})
+    out = response.json()["Annotations"]
+    out = pd.concat([pd.Series(k) for k in out if k[
+        "Category"] in categories], axis=1).T.set_index(["Category", "ID"])
+    out = out[out["PValue" if (
+        correction is None) else f"QValue{correction}"] < p_threshold]  # p
+    out = out[out["GenesInTermInQuery"] >= min_genes]  # filter by min_genes
+    return out
 
 
 def run_mapbraincells(file_adata, map_my_cells_source="WHB-10X",
