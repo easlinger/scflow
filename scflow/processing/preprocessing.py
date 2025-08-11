@@ -134,9 +134,10 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
         adata.layers[layer_log1p] = adata.X.copy()
 
     # HVGs
-    print("\t***Detecting highly variable genes...")
+    print(f"\t***Detecting highly variable genes ({col_sample}-aware)..." if (
+        col_sample) else "\t***Detecting highly variable genes...")
     pkg.pp.highly_variable_genes(
-        adata, n_top_genes=n_top_genes, batch_key=col_batch)
+        adata, n_top_genes=n_top_genes, batch_key=col_sample)
     if plot_qc is True:
         sc.pl.highly_variable_genes(adata)  # plot HVGs
 

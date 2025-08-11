@@ -9,6 +9,7 @@ Functions for data reading, concatenation, integration, etc.
 import os
 import anndata
 import scanpy as sc
+import scvi
 from scipy import sparse
 from warnings import warn
 try:
@@ -23,10 +24,19 @@ try:
     warn("Cannot import rapids_singlecell.")
 except Exception:
     rsc = None
+try:
+    from scib_metrics.benchmark import Benchmarker
+except Exception:
+    pass
+try:
+    import scanorama
+except Exception:
+    pass
 import numpy as np
 import scflow
 
 layer_log1p = "log1p"
+layer_counts = "counts"
 
 
 def read_scrna(file_path, **kws_read):
@@ -54,11 +64,13 @@ def read_scrna(file_path, **kws_read):
 def integrate(adata, kws_pp=None, kws_cluster=None,
               col_sample="sample", col_batch=None, axis="obs",
               join="outer", merge=None, uns_merge=None, n_top_genes=2000,
-              layer_log1p=layer_log1p, n_comps=None, kws_pca_final=None,
+              layer_log1p=layer_log1p, layer_counts=layer_counts,
+              n_comps=None, kws_pca_final=None,
               index_unique="_", fill_value=None, pairwise=False,
               basis="X_pca", drop_non_hvgs=False,
               plot_qc=False, out_file=None,
-              use_rapids=True, verbose=True, layer="scaled", **kwargs):
+              use_rapids=True, verbose=True, layer=None,
+              flavor="harmony", col_celltype=None, **kwargs):
     """
     Integrate scRNA-seq anndata objects with `Harmony`.
 
@@ -125,6 +137,8 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
         for x in adata:
             adata[x].var_names_make_unique()
             adata[x].obs_names_make_unique()
+
+        # Preprocessing & Clustering
         if kws_pp is not None:
             print("\n\n")
             if isinstance(kws_pp, dict) and any((
@@ -161,6 +175,8 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
                 adata[x].X = sparse.csr_matrix(adata[x].X)  # to sparse matrix
         fx_concat = anndata.concat  # function to use to concatenate
         first_args = [adata]  # positional argument to concatenate
+
+    # On-Disk Setup
     elif isinstance(adata, (list, dict)):  # on disk concatenation?
         fx_concat = anndata.experimental.concat_on_disk  # function
         if isinstance(adata, list):  # retrieve sample names if needed
@@ -173,6 +189,8 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
                 sample_ids += [sid.iloc[0]]
             adata = dict(zip(sample_ids, adata))  # convert list to dictionary
         first_args = [adata, out_file]  # positional arguments to concatenate
+
+    # Concatenation
     if isinstance(adata, (list, dict)):  # if needs concatenation
         print("\n>>>Concatenating data...")
         adata = fx_concat(
@@ -212,19 +230,108 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
     col_covs = col_sample if col_batch is None else [col_sample, col_batch]
     if verbose is True:
         ccs = col_covs if isinstance(col_covs, str) else " & ".join(col_covs)
-        print(f"\n>>>Integrating with respect to {ccs}...")
-    if layer is not None:  # layer for harmonypy
-        adata.X = adata.layers[layer].copy()
-    fxi = rsc.pp.harmony_integrate if (
-        use_rapids is True) else sc.external.pp.harmony_integrate  # fx?
-    fxi(adata, col_covs, basis=basis,
-        adjusted_basis=f"{basis}_harmony", **kwargs)  # Harmony integration
-    adata.obsm["X_pca_old"] = adata.obsm["X_pca"].copy()
-    adata.obsm["X_pca"] = adata.obsm["X_pca_harmony"].copy()
+        print(f"\n>>>Integrating with respect to {ccs} ({flavor.upper()})...")
+    new_pca_key = None
+
+    # Harmony
+    if flavor.lower() == "harmony":
+        print(f"***Using {layer_log1p} layer for Harmony...")
+        adata.X = adata.layers[layer_log1p].copy()
+        fxi = rsc.pp.harmony_integrate if (
+            use_rapids is True) else sc.external.pp.harmony_integrate  # fx?
+        fxi(adata, col_covs, basis=basis,
+            adjusted_basis=f"{basis}_harmony", **kwargs)  # Harmony
+        new_pca_key = "X_pca_harmony"
+        if use_rapids is True:
+            rsc.get.anndata_to_CPU(adata)  # move back to cpu
+
+    # scVI or scANVI
+    elif flavor.lower() in ["scvi", "scanvi"]:
+        print(f"\t***Using {layer_counts} layer...")
+        kws_setup = dict(layer=layer_counts, batch_key=col_covs if isinstance(
+            col_covs, str) else col_covs[0])
+        pca_scvi = "X_scVI"
+        kss = ["size_factor_key", "categorical_covariate_keys",
+               "continuous_covariate_keys"]
+        for k in [i for i in kss if i in kwargs]:
+            kws_setup[k] = kwargs.pop(k)  # extract setup arguments
+        if "categorical_covariate_keys" not in kws_setup:
+            kws_setup["categorical_covariate_keys"] = None if (
+                isinstance(col_covs, str)) else col_covs[1]
+        kts = ["max_epochs", "accelerator", "devices", "train_size",
+               "validation_size", "shuffle_set_split", "batch_size",
+               "datasplitter_kwargs", "plan_kwargs", "datamodule"]
+        kws_train = {}
+        for k in [i for i in kts if i in kwargs]:
+            kws_train[k] = kwargs.pop(k)  # extract shared training arguments
+        if flavor.lower() == "scanvi":  # scANVI setup
+            new_pca_key = "X_scANVI"
+            kws_train_scanvi = {**kws_train}  # start with shared arguments
+            k_train = ["n_samples_per_label", "check_val_every_n_epoch",
+                       "adversarial_classifier"]
+            for k in [i for i in k_train if i in kwargs]:
+                kws_train_scanvi[k] = kwargs.pop(k)
+            if "labels_key" not in kwargs:
+                kwargs["labels_key"] = col_celltype
+            unlabeled = kwargs.pop("unlabeled_category", "Unlabeled")
+            if "use_minified" in kwargs:
+                kws_setup["use_minified"] = kwargs.pop(x)
+            scvi.model.SCANVI.setup_anndata(
+                adata, col_celltype, unlabeled, **kws_setup)  # setup data
+        else:  # scVI setup
+            new_pca_key = pca_scvi
+            kws_setup["labels_key"] = col_celltype
+            scvi.model.SCVI.setup_anndata(adata, **kws_setup)  # setup data
+        kws_train_scvi = {**kws_train}  # start with shared arguments
+        for k in [i for i in ["load_sparse_tensor", "early_stopping"] if (
+                i in kwargs)]:
+            kws_train_scvi[k] = kwargs.pop(k)
+        model = scvi.model.SCVI(adata, **kwargs)  # scVI or scanVI model
+        model.train(**kws_train_scvi)  # train model
+        adata.obsm[pca_scvi] = model.get_latent_representation()
+        if flavor.lower() == "scanvi":
+            scvi.model.SCANVI.from_scvi_model(
+                model, adata=adata, labels_key=col_celltype,
+                unlabeled_category=unlabeled, **kwargs)
+            model.train(**kws_train_scanvi)
+            adata.obsm[new_pca_key] = model.get_latent_representation(adata)
+
+    # Scanorama
+    elif flavor.lower() == "scanorama":
+        new_pca_key = "X_scanorama"
+        batch_cats = adata.obs[col_sample].cat.categories
+        adata_list = [adata[adata.obs[col_batch] == b].copy()
+                      for b in batch_cats]
+        scanorama.integrate_scanpy(adata_list)
+        adata.obsm["Scanorama"] = np.zeros((adata.shape[0], adata_list[
+            0].obsm[new_pca_key].shape[1]))
+        for i, b in enumerate(batch_cats):
+            adata.obsm["Scanorama"][adata.obs[col_batch] == b] = adata_list[
+                i].obsm[new_pca_key]
+        else:
+            raise ValueError(f"`flavor={flavor} invalid")
+
+    # Final Cleanup
+    if new_pca_key is not None:  # new PCA -> X_pca default key
+        adata.obsm["X_pca_old"] = adata.obsm["X_pca"].copy()
+        adata.obsm["X_pca"] = adata.obsm[new_pca_key].copy()
     adata.X = adata.layers[layer_log1p].copy()  # set back to log1p
     if "n_genes_by_counts" not in adata.var:  # re-perform QC if needed
         adata = scflow.pp.perform_qc(
             adata, plot_qc=verbose, inplace=True, use_rapids=use_rapids)
-    if use_rapids is True:
-        rsc.get.anndata_to_CPU(adata)  # move backj to cpu
     return adata
+
+
+def benchmark_integration(adata, col_sample, pca_keys=None,
+                          col_celltype=None, min_max_scale=False, n_jobs=-1):
+    """Benchmark integration results."""
+    if pca_keys is None:
+        pca_keys = ["X_pca_old", "X_scVI", "X_scANVI", "X_pca_harmony"]
+    pca_keys = [i for i in pca_keys if i in adata.obsm]
+    bmr = Benchmarker(adata, batch_key=col_sample, label_key=col_celltype,
+                      embedding_obsm_keys=pca_keys, n_jobs=n_jobs)
+    bmr.benchmark()
+    bmr.plot_results_table(min_max_scale=min_max_scale)
+    results = bmr.get_results(min_max_scale=min_max_scale)
+    print(results)
+    return results, bmr

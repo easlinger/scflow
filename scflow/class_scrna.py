@@ -53,29 +53,27 @@ class Rna(object):
                 function (if passed list or dict to `file_path`).
 
         """
-        kws_read, kws_integrate = [x if x else {} for x in [
-            kws_read, kws_integrate]]  # empty dictionaries if kws not passed
         integrated = False
-        if "var_names" in kwargs:
-            kws_read["var_names"] = kwargs.pop("var_names")
-        if isinstance(file_path, (AnnData, MuData)):  # just load Ann/MuData
-            adata = file_path.copy()
-        elif isinstance(file_path, (list, dict)):  # integrate samples/batches
+        if isinstance(file_path, (list, dict)) or (
+                kws_integrate is not None):  # integrate samples/batches
+            if kws_integrate is None:
+                kws_integrate = {}
             if col_sample is None:
                 col_sample = "sample"
-            if not isinstance(kws_read, list):  # if not sample-specific kws
-                kws_read = [kws_read] * len(file_path)  # use same for all
-            kws_read = dict(zip(list(file_path.keys()), kws_read))
-            # adata = [file_path[x] if isinstance(file_path[x], (
-            #     AnnData, MuData)) else scflow.pp.read_scrna(
-            #         file_path[x], **kws_read[x]) for x in file_path]  # read
+            # if isinstance(file_path, (list, dict)):  # if not concatenated
+            #     if not isinstance(kws_read, list):  # if not sample-specific
+            #         kws_read = [kws_read] * len(file_path)  # use same
+            #     kws_read = dict(zip(list(file_path.keys()), kws_read))
+            #     adata = [file_path[x] if isinstance(file_path[x], (
+            #         AnnData, MuData)) else scflow.pp.read_scrna(
+            #             file_path[x], **kws_read[x]) for x in file_path
+            #     ]  # read individual files if needed
             kws_integrate = {**dict(col_sample=col_sample,
                                     col_batch=col_batch), **kws_integrate}
             adata = scflow.pp.integrate(file_path, **kws_integrate)  # Harmony
             integrated = True
-        else:  # read single file
-            adata = scflow.pp.read_scrna(file_path, **kws_read)
-        if isinstance(file_path, (AnnData, MuData)):  # if passed object...
+        elif isinstance(file_path, (AnnData, MuData)):  # just load Ann/MuData
+            adata = file_path.copy()
             if "var_names" in kws_read:
                 if assay is not None:
                     if adata[assay].var.index.names[0] != kws_read[
@@ -88,6 +86,12 @@ class Rna(object):
                             kws_read["var_names"])
                     adata.var_names = adata.var[kws_read[
                         "var_names"]].to_list()
+        else:  # read single file
+            if kws_read is None:
+                kws_read = {}
+            if "var_names" in kwargs:
+                kws_read["var_names"] = kwargs.pop("var_names")
+            adata = scflow.pp.read_scrna(file_path, **kws_read)
         self._info = {"col_sample": col_sample,
                       "col_batch": col_batch,
                       "kws_read": kws_read,
@@ -314,7 +318,7 @@ class Rna(object):
                 "names", append=True)  # concatenate across cell types
         return marker_df
 
-    def annotate(self, annotation_guide, marker_genes_dict=None,
+    def annotate(self, annotation_guide,
                  col_celltype=None, layer=None,
                  col_celltype_new=None, overwrite=False,
                  inplace=True, **kwargs):
@@ -326,6 +330,7 @@ class Rna(object):
         markers keyed by cell types
         (`reference_markers` in `scanpy.tl.marker_gene_overlap`).
         """
+        results = None
         # TODO: Overwriting columns unsophisticated (will fail in some cases)
         if col_celltype is None:
             col_celltype = self._info["col_celltype"]
@@ -345,26 +350,18 @@ class Rna(object):
                 if layer is None:
                     layer = layer_log1p
                     warn(f"Changing layer to {layer_log1p}")
-            predictions, adata = scflow.pp.run_celltypist(
+            results, adata = scflow.pp.run_celltypist(
                 adata, annotation_guide, col_celltypist_suffix=suff_ct,
                 layer=layer, col_celltype=col_celltype, **kwargs)
-            if inplace is True:
-                self.rna = adata
-                return predictions
-            else:
-                return adata, predictions
         # Marker Overlap Method
-        elif marker_genes_dict is not None:
-            key = kwargs.pop("key_added", f"rank_genes_groups_{col_celltype}")
-            new = f"marker_gene_overlap_{key.split('rank_genes_groups_')[1]}"
-            marker_matches = sc.tl.marker_gene_overlap(
-                self.rna, annotation_guide, key=key,
-                key_added=new, **kwargs)  # detect marker overlap
-            new_labels = dict(marker_matches.apply(
-                lambda x: " | ".join(np.array(marker_matches.index.values)[
-                    np.where(x == max(x))[0]])))  # find where most overlap
-            self.rna.obs.loc[:, col_celltype_new] = self.rna.obs[
-                col_celltype].replace(new_labels)  # replace with best match
-            return marker_matches
+        elif isinstance(annotation_guide, dict):
+            results, adata = scflow.pp.annotate_by_marker_overlap(
+                adata, annotation_guide, col_celltype=col_celltype,
+                col_celltype_new=col_celltype_new, inplace=True, **kwargs)
         else:
             NotImplementedError("")
+        if inplace is True:
+            self.rna = adata
+            return results
+        else:
+            return adata, results

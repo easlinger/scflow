@@ -31,6 +31,7 @@ dependencies = [
     "leidenalg",
     "celltypist",
     "harmony-py",
+    "scvi-tools",
     "pertpy[de]",
     "ensembl_rest",
 

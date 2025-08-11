@@ -19,10 +19,30 @@ try:
 except ModuleNotFoundError:
     pass
 import requests
-import json
+# import json
 import scanpy as sc
 import pandas as pd
 import numpy as np
+
+
+def annotate_by_marker_overlap(adata, marker_gene_dict, col_celltype="leiden",
+                               col_celltype_new=None, inplace=True, **kwargs):
+    """Annotate by overlap with pre-defined marker genes."""
+    if inplace is False:
+        adata = adata.copy()
+    key = kwargs.pop("key_added", f"rank_genes_groups_{col_celltype}")
+    if col_celltype_new is None:
+        col_celltype_new = "annotation_by_marker_overlap"
+    new = f"marker_gene_overlap_{key.split('rank_genes_groups_')[1]}"
+    marker_matches = sc.tl.marker_gene_overlap(
+        adata, marker_gene_dict, key=key,
+        key_added=new, **kwargs)  # detect marker overlap
+    new_labels = dict(marker_matches.apply(
+        lambda x: " | ".join(np.array(marker_matches.index.values)[
+            np.where(x == max(x))[0]])))  # find where most overlap
+    adata.obs.loc[:, col_celltype_new] = adata.obs[
+            col_celltype].replace(new_labels)  # replace with best match
+    return marker_matches, adata
 
 
 def run_celltypist(adata, model, layer="log1p", col_celltype=None,
