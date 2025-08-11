@@ -6,13 +6,28 @@ Functions for preprocessing.
 @author: E. N. Aslinger
 """
 
-import os
+# import os
 import warnings
-import anndata
+# import anndata
 import matplotlib.pyplot as plt
 import seaborn as sns
 import scanpy as sc
+from warnings import warn
+try:
+    import cupyx as cpx
+    # from cupyx.scipy.sparse import csr_matrix as cupy_csr_matrix
+    # import cupy
+    import rapids_singlecell as rsc
+    import rmm
+    # from rmm.allocators.cupy import rmm_cupy_allocator
+except Exception:
+    rsc, cpx, rmm = None, None, None
+    warn("Cannot import rapids_singlecell.")
 import pandas as pd
+
+# if rmm:
+#     rmm.reinitialize(managed_memory=True)
+#     cupy.cuda.set_allocator(rmm_cupy_allocator)
 
 
 def preprocess(adata, min_max_genes=None, min_max_cells=None,
@@ -20,10 +35,14 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
                layer_counts="counts", layer_log1p="log1p",
                layer_scaled="scaled", doublet_detection=False,
                normalize=True, min_max_counts=None,
-               vars_regress_out=None, target_sum=1e4, max_fraction=0.05,
+               vars_regress_out=None, target_sum=1e4,
                exclude_highly_expressed=False, n_top_genes=2000, max_mt=None,
-               zero_center=True, max_value=None, plot_qc=True, inplace=True):
+               zero_center=True, max_value=None, plot_qc=True,
+               use_rapids=True, inplace=True):
     """Filter, normalize, and perform QC on scRNA-seq data."""
+    if rsc is None:
+        use_rapids = False
+    pkg = rsc if use_rapids is True else sc
     if isinstance(min_max_genes, str):
         if min_max_genes.lower() not in ["min", "max"]:
             raise ValueError(
@@ -35,7 +54,7 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
         warnings.warn("`layer_counts` not found in `adata.layers`. "
                       "Assuming current `adata.X` is integer counts.")
     if normalize is True:
-        print(f"Activating layer {layer_counts}")
+        print(f"\t***Activating layer '{layer_counts}'...")
         adata.X = adata.layers[layer_counts].copy()  # ensure using counts
     try:
         adata.var_names_make_unique()
@@ -51,17 +70,25 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
         sc.pl.highest_expr_genes(adata, n_top=20)
 
     # Quality Control
-    adata = perform_qc(adata, plot_qc=plot_qc, col_sample=col_sample)
+    if use_rapids is True:
+        # print("\t***Moving adata to GPU")
+        # adata.X = cupy_csr_matrix(adata.X)
+        rsc.get.anndata_to_GPU(adata)
+    adata = perform_qc(adata, plot_qc=plot_qc, use_rapids=use_rapids,
+                       col_sample=col_sample, to_gpu=False, inplace=True)
+    print(adata)
 
     # Filter Genes & Cells
     if min_max_counts is not None:
-        print("\n***Filtering cells by counts...\n")
+        print("\t***Filtering cells by counts...")
         if min_max_counts[0] is not None:
-            adata = adata[adata.obs["total_counts"] >= min_max_counts[0]]
+            adata = adata[adata.obs[
+                "total_counts"] >= min_max_counts[0]].copy()
         if min_max_counts[1] is not None:
-            adata = adata[adata.obs["total_counts"] <= min_max_counts[1]]
+            adata = adata[adata.obs[
+                "total_counts"] <= min_max_counts[1]].copy()
     if min_max_genes is not None:  # filter cells by gene counts
-        print("\n***Filtering cells by genes...\n")
+        print("\t***Filtering cells by genes...")
         # if min_max_genes is True or isinstance(min_max_genes, str):
         #     min_max_genes = scflow.tl.calculate_outliers(
         #         adata.obs["n_genes"], inplace=True)
@@ -71,11 +98,11 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
         #         elif min_max_genes.lower() == "max":  # only upper bound
         #             min_max_genes = [None, min_max_genes[1]]
         if min_max_genes[0] is not None:
-            sc.pp.filter_cells(adata, min_genes=min_max_genes[0])
+            pkg.pp.filter_cells(adata, min_genes=min_max_genes[0])
         if min_max_genes[1] is not None:
-            sc.pp.filter_cells(adata, max_genes=min_max_genes[1])
+            pkg.pp.filter_cells(adata, max_genes=min_max_genes[1])
     if min_max_cells is not None:  # filter genes by cell counts
-        print("\n***Filtering genes by cells...\n")
+        print("\t***Filtering genes by cells...")
         # if min_max_cells is True or isinstance(min_max_cells, str):
         #     min_max_cells = scflow.tl.calculate_outliers(
         #         adata.var["n_cells"], inplace=True)
@@ -85,52 +112,61 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
         #         elif min_max_cells.lower() == "max":  # only upper bound
         #             min_max_cells = [None, min_max_cells[1]]
         if min_max_cells[0] is not None:
-            sc.pp.filter_genes(adata, min_cells=min_max_cells[0])
+            pkg.pp.filter_genes(adata, min_cells=min_max_cells[0])
         if min_max_cells[1] is not None:
-            sc.pp.filter_genes(adata, max_cells=min_max_cells[1])
+            pkg.pp.filter_genes(adata, max_cells=min_max_cells[1])
     if max_mt is not None:  # filter by maximum mitochondrial count
-        print("\n***Filtering cells by mitochondrial gene content...\n")
+        print("\t***Filtering cells by mitochondrial gene content...")
         adata = adata[adata.obs["pct_counts_mt"] <= max_mt]
 
     # Doublet Detection
     if doublet_detection is True:
-        print("\n***Performing doublet detection...\n")
-        sc.pp.scrublet(adata, batch_key=col_sample)
+        print("\t***Performing doublet detection...")
+        pkg.pp.scrublet(adata, batch_key=col_sample)
 
     # Normalization & Regress Out (Optional)
     if normalize is True:
-        print("\n***Normalizing...\n")
-        sc.pp.normalize_total(
-            adata, target_sum=target_sum,
-            exclude_highly_expressed=exclude_highly_expressed,
-            max_fraction=max_fraction)
-        sc.pp.log1p(adata)
-        adata.layers[layer_log1p] = adata.X.copy()
-    if vars_regress_out is not None:
-        print("\n***Regressing out covariates...\n")
-        sc.pp.regress_out(
-            adata, vars_regress_out)  # e.g. ["total_counts", "pct_counts_mt"]
+        print("\t***Normalizing...")
+        pkg.pp.normalize_total(
+            adata, target_sum=target_sum, **{**dict({} if rsc else {
+                "exclude_highly_expressed": exclude_highly_expressed})})
+        pkg.pp.log1p(adata)
         adata.layers[layer_log1p] = adata.X.copy()
 
     # HVGs
-    print("\n***Detecting highly variable genes...\n")
-    sc.pp.highly_variable_genes(
+    print("\t***Detecting highly variable genes...")
+    pkg.pp.highly_variable_genes(
         adata, n_top_genes=n_top_genes, batch_key=col_batch)
     if plot_qc is True:
         sc.pl.highly_variable_genes(adata)  # plot HVGs
 
+    # Regress Out Covariates (AFTER HVGs)
+    if vars_regress_out is not None:
+        print("\t***Regressing out covariates...")
+        pkg.pp.regress_out(
+            adata, vars_regress_out)  # e.g. ["total_counts", "pct_counts_mt"]
+        if normalize is True:
+            adata.layers[layer_log1p] = adata.X.copy()
+
     # Scale
     if zero_center not in [None, False] or max_value not in [None, False]:
-        print("\n***Scaling data...\n")
-        sc.pp.scale(adata, zero_center=zero_center, max_value=max_value)
+        print("\t***Scaling data...")
+        pkg.pp.scale(adata, zero_center=zero_center, max_value=max_value)
         adata.layers[layer_scaled] = adata.X.copy()
 
+    if use_rapids is True:
+        rsc.get.anndata_to_CPU(adata)  # move backj to cpu
     return adata
 
 
-def perform_qc(adata, qc_vars=None, plot_qc=True, col_sample=None):
+def perform_qc(adata, qc_vars=None, plot_qc=True, col_sample=None,
+               inplace=True, use_rapids=True, to_gpu=True):
     """Perform QC."""
-    # Detect Special Genes
+    if inplace is False:
+        adata = adata.copy()
+    pkg = rsc if rsc and use_rapids is True else sc
+    if rsc is not None and to_gpu is True and use_rapids is True:
+        rsc.get.anndata_to_GPU(adata)
     try:
         adata.var_names_make_unique()
     except Exception as err:
@@ -146,8 +182,8 @@ def perform_qc(adata, qc_vars=None, plot_qc=True, col_sample=None):
         r"^hb[^p]", case=False, regex=True)
     if qc_vars is None:
         qc_vars = [i for i in ["mt", "ribo", "hb"] if adata.var[i].sum() > 0]
-    sc.pp.calculate_qc_metrics(
-        adata, qc_vars=qc_vars, inplace=True, log1p=True)
+    kws_qc = {} if rsc and use_rapids is True else dict(inplace=True)
+    pkg.pp.calculate_qc_metrics(adata, qc_vars=qc_vars, log1p=True, **kws_qc)
     if plot_qc is True:
         sc.pl.violin(
             adata, ["n_genes_by_counts", "total_counts", "pct_counts_mt"],
@@ -163,6 +199,8 @@ def perform_qc(adata, qc_vars=None, plot_qc=True, col_sample=None):
                   "(n_cells_by_counts)")
         sc.pl.scatter(adata, "total_counts", "n_genes_by_counts",
                       color="pct_counts_mt")  # QC scatter plot
+    if rsc is not None and to_gpu is True and use_rapids is True:
+        rsc.get.anndata_to_CPU(adata)  # move backj to cpu
     return adata
 
 
@@ -201,13 +239,14 @@ def perform_qc_multi(adatas, plot_qc=False, col_gene="gene",
         for i, m in enumerate(mets):
             sns.stripplot(
                 data=n_cells_by_counts.reset_index(), y="n_cells_by_counts",
-                x=col_batch, hue=col_sample,
+                x=col_batch, hue=col_sample, jitter=False,
                 legend=legend, ax=figs["obs"][1][i])
         figs["var"] = plt.subplots(
             figsize=(20, 20) if figsize is None else figsize)
         sns.stripplot(
             data=n_cells_by_counts.reset_index(), y="n_cells_by_counts",
-            x=col_batch, hue=col_sample, legend=legend, ax=figs["var"][1])
+            x=col_batch, hue=col_sample, legend=legend,
+            jitter=True, ax=figs["var"][1])
     descriptives = qcs.groupby([col_sample, col_batch] if (
         col_batch is not None) else col_sample).describe(
             percentiles=percentiles).rename_axis([

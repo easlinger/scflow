@@ -7,6 +7,7 @@ Functions for annotating single-cell data.
 """
 
 import os
+import re
 from warnings import warn
 import celltypist
 import ensembl_rest
@@ -33,7 +34,7 @@ def run_celltypist(adata, model, layer="log1p", col_celltype=None,
         warn("Can't plot: `col_celltype` {col_celltype} not in `adata.obs`.")
     if layer is not None:
         adata = adata.copy()  # TODO: not memory efficient...
-        adata.X = adata.layers[layer]
+        adata.X = adata.layers[layer].copy()
     predictions = celltypist.annotate(
         adata, model=model, **kwargs)  # CellTypist
     obs_add = predictions.predicted_labels["predicted_labels"].to_frame(
@@ -61,28 +62,40 @@ def run_celltypist(adata, model, layer="log1p", col_celltype=None,
     return predictions, adata
 
 
-def annotate_by_toppgene(genes, categories=None,
+def annotate_by_toppgene(genes, categories=None, source_patterns=None,
                          min_genes=1, max_results=1000,
+                         remove_strings=None,
                          p_threshold=0.05, correction="FDRBH",
                          translate_gene_symbols=True, species="human"):
     """Annotate by marker overlap with ToppGene atlases."""
+    if remove_strings is None:
+        remove_strings = ["- method, tissue, subtissue, age, "
+                          "lineage, cell ontology and free annotation"]
+    if isinstance(remove_strings, str):
+        remove_strings = [remove_strings]
     if isinstance(genes, dict):  # if multiple sets of genes
         out = pd.concat([annotate_by_toppgene(
             genes[g], categories=categories, min_genes=min_genes,
             max_results=max_results, p_threshold=p_threshold,
-            correction=correction,
+            remove_strings=remove_strings,
+            correction=correction, source_patterns=source_patterns,
             translate_gene_symbols=translate_gene_symbols, species=species)
                          for g in genes], keys=genes, names=["Gene Set"])
         return out
     if categories is None:
-        categories = ["Coexpression", "CoexpressionAtlas", "Pathway",
-                      "Pubmed", "ToppCell"]
+        categories = ["Coexpression", "CoexpressionAtlas",
+                      "Pathway", "ToppCell"]
         if species in ["human", "mouse"]:
             categories += [
                 "HumanPheno" if species == "human" else "MousePheno"]
     if translate_gene_symbols is True:
-        ids = [ensembl_rest.symbol_lookup(species=species, symbol=g)["id"]
-               for g in genes]
+        ids = []
+        for g in genes:  # iterate genes
+            try:
+                ids += [ensembl_rest.symbol_lookup(
+                    species=species, symbol=g)["id"]]
+            except Exception as e:
+                print(e)
         response = requests.post(
             "https://toppgene.cchmc.org/API/lookup", json={"Symbols": ids},
             headers={"Content-Type": "application/json"})
@@ -98,7 +111,24 @@ def annotate_by_toppgene(genes, categories=None,
     out = out[out["PValue" if (
         correction is None) else f"QValue{correction}"] < p_threshold]  # p
     out = out[out["GenesInTermInQuery"] >= min_genes]  # filter by min_genes
-    return out
+    if source_patterns is not None:
+        if isinstance(source_patterns, str):
+            source_patterns = [source_patterns]
+        out = out[out.Source.apply(lambda x: any((
+            i in x for i in source_patterns)))]
+    if remove_strings not in [None, False] and out.empty is False:
+        out.loc[:, "Name_Original"] = out.Name.copy()
+        for s in remove_strings:
+            out = out.assign(Name=out.Name.apply(lambda x: re.sub(s, "", x)))
+    if out.empty is False:
+        out.loc[:, "percent_atlas_genes_in_query"] = round(100 * (out[
+            "GenesInTermInQuery"] / out["GenesInTerm"]), 2)
+        out = out.sort_values([
+            "GenesInTermInQuery", "percent_atlas_genes_in_query"],
+                              ascending=False)  # sort
+        out.loc[:, "Symbols"] = out["Genes"].apply(
+            lambda x: [i["Symbol"] for i in x])
+    return out.drop("URL", axis=1) if "URL" in out else out
 
 
 def run_mapbraincells(file_adata, map_my_cells_source="WHB-10X",

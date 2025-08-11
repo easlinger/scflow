@@ -1,12 +1,12 @@
 # __init__.py
 # pylint: disable=unused-import
 
+import warnings
 from warnings import warn
 from anndata import AnnData
 import scanpy as sc
 from scipy.sparse import issparse
 from mudata import MuData
-import celltypist
 import scflow
 # from scflow import Regression
 # from scflow.processing import import_data
@@ -16,6 +16,8 @@ import numpy as np
 layer_log1p = "log1p"  # TODO: MOVE THESE TO CONSTANTS MODULE
 layer_counts = "counts"
 layer_scaled = "scaled"
+
+warnings.simplefilter(action="default")
 
 
 class Rna(object):
@@ -64,12 +66,12 @@ class Rna(object):
             if not isinstance(kws_read, list):  # if not sample-specific kws
                 kws_read = [kws_read] * len(file_path)  # use same for all
             kws_read = dict(zip(list(file_path.keys()), kws_read))
-            adata = [file_path[x] if isinstance(file_path[x], (
-                AnnData, MuData)) else scflow.pp.read_scrna(
-                    file_path[x], **kws_read[x]) for x in file_path]  # read
-            kws_integrate.update(dict(col_sample=col_sample,
-                                      col_batch=col_batch))
-            adata = scflow.pp.integrate(adata, **kws_integrate)  # Harmony
+            # adata = [file_path[x] if isinstance(file_path[x], (
+            #     AnnData, MuData)) else scflow.pp.read_scrna(
+            #         file_path[x], **kws_read[x]) for x in file_path]  # read
+            kws_integrate = {**dict(col_sample=col_sample,
+                                    col_batch=col_batch), **kws_integrate}
+            adata = scflow.pp.integrate(file_path, **kws_integrate)  # Harmony
             integrated = True
         else:  # read single file
             adata = scflow.pp.read_scrna(file_path, **kws_read)
@@ -92,6 +94,12 @@ class Rna(object):
                       "kws_integrate": kws_integrate,
                       "integrated": integrated,
                       "col_celltype": col_celltype}  # object information
+        if self._info["integrated"] is False and (
+                col_sample is not None or col_batch is not None):
+            warn("\n\n`col_sample` or `col_batch specified.\nIf this object "
+                 "has already been integrated (e.g., with Harmony),\nset "
+                 "`self._info['integrated'] = True` to avoid"
+                 " recalculating PCA when using `self.cluster()`")
         self.assay = assay
         self.rna = adata
         # self._adata = adata
@@ -221,9 +229,9 @@ class Rna(object):
         else:
             return scflow.pp.preprocess(self.rna, inplace=False, **kws_pp)
 
-    def cluster(self, col_celltype="leiden", layer="log1p",
+    def cluster(self, col_celltype="leiden", layer=layer_scaled,
                 resolution=1, min_dist=0.5,
-                use_highly_variable=True, inplace=True, **kws):
+                use_highly_variable=True, inplace=True, seed=0, **kws):
         """Perform Leiden clustering."""
         adata = self.rna if inplace is True else self.rna.copy()
         if layer is not None:
@@ -241,7 +249,7 @@ class Rna(object):
                     "Integrated datasets should use `kws_pca=False`")
         if kws["kws_pca"] is not False:
             kws["kws_pca"]["use_highly_variable"] = use_highly_variable
-        adata = scflow.pp.cluster(adata, resolution=resolution,
+        adata = scflow.pp.cluster(adata, resolution=resolution, seed=seed,
                                   min_dist=min_dist, inplace=True, **kws)
         if self._info["col_celltype"] is None:  # update default column
             self._info["col_celltype"] = col_celltype
@@ -299,7 +307,7 @@ class Rna(object):
                 tmp = tmp[tmp["logfoldchanges"].abs() >= log2fc_threshold]
             tmp = tmp.sort_values("pvals_adj")  # ensure sorted by p-values
             if n_genes is not None:
-                tmp = tmp.iloc[:(n_genes + 1)]  # top n_genes if wanted
+                tmp = tmp.iloc[:n_genes]  # top n_genes if wanted
             marker_df += [tmp]  # add to overall list of dfs
         marker_df = pd.concat(marker_df, keys=key_celltype, names=[
             col_celltype]).reset_index(1, drop=True).set_index(

@@ -68,6 +68,8 @@ def plot_matrix(adata, genes=None, col_celltype=None,
 def plot_violin(adata, genes=None, col_celltype=None,
                 col_wrap=None, title=None, figsize=None, **kwargs):
     """Plot a gene expression violin plot."""
+    if title is not None and col_wrap is None:
+        col_wrap = 1  # workaround so title displays
     if col_wrap is not None:
         kws_fig = {"figsize": figsize, "squeeze": False}
         kss = ["sharex", "sharey", "width_ratios", "height_ratios",
@@ -88,6 +90,7 @@ def plot_violin(adata, genes=None, col_celltype=None,
     else:
         fig = sc.pl.violin(adata, genes, col_celltype, **kwargs)
         fig = plt.gcf()
+    print(title)
     if title is not None:  # title?
         fig.suptitle(title)
     if "show" not in kwargs or kwargs["show"] is True:

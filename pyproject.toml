@@ -32,7 +32,7 @@ dependencies = [
     "celltypist",
     "harmony-py",
     "pertpy[de]",
-    "ensemble_rest",
+    "ensembl_rest",
 
     # Plotting
     "matplotlib>=3.9.0",
