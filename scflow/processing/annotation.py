@@ -26,7 +26,8 @@ import numpy as np
 
 
 def annotate_by_marker_overlap(adata, marker_gene_dict, col_celltype="leiden",
-                               col_celltype_new=None, inplace=True, **kwargs):
+                               col_celltype_new=None, inplace=True, sep=" | ",
+                               celltypes_superhierarchical=None, **kwargs):
     """Annotate by overlap with pre-defined marker genes."""
     if inplace is False:
         adata = adata.copy()
@@ -37,11 +38,20 @@ def annotate_by_marker_overlap(adata, marker_gene_dict, col_celltype="leiden",
     marker_matches = sc.tl.marker_gene_overlap(
         adata, marker_gene_dict, key=key,
         key_added=new, **kwargs)  # detect marker overlap
-    new_labels = dict(marker_matches.apply(
-        lambda x: " | ".join(np.array(marker_matches.index.values)[
+    new_lbls = dict(marker_matches.apply(
+        lambda x: sep.join(np.array(marker_matches.index.values)[
             np.where(x == max(x))[0]])))  # find where most overlap
+    if celltypes_superhierarchical is not None:
+        # drop superclusters in heteregeneous labels if subcluster present?
+        for s in celltypes_superhierarchical:  # iterate superclusters
+            new_lbls = dict(zip(new_lbls, [sep.join(
+                list(set(new_lbls[i].split(sep)).difference([s]))) if (
+                    sep in new_lbls[i]) and s in new_lbls[i].split(sep) and (
+                        any((v in new_lbls[i].split(sep)
+                             for v in celltypes_superhierarchical[s]))
+                        ) else new_lbls[i] for i in new_lbls]))
     adata.obs.loc[:, col_celltype_new] = adata.obs[
-            col_celltype].replace(new_labels)  # replace with best match
+        col_celltype].replace(new_lbls)  # replace with best match
     return marker_matches, adata
 
 

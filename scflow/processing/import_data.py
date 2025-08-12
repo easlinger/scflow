@@ -280,7 +280,6 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
             #     adata, col_celltype, unlabeled, **kws_setup)  # setup data
         else:  # scVI setup
             new_pca_key = pca_scvi
-            kws_setup["labels_key"] = col_celltype
         scvi.model.SCVI.setup_anndata(adata, **kws_setup)  # setup data
         kws_train_scvi = {**kws_train}  # start with shared arguments
         for k in [i for i in ["load_sparse_tensor", "early_stopping"] if (
