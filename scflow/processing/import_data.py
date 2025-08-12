@@ -271,30 +271,47 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
                        "adversarial_classifier"]
             for k in [i for i in k_train if i in kwargs]:
                 kws_train_scanvi[k] = kwargs.pop(k)
-            if "labels_key" not in kwargs:
-                kwargs["labels_key"] = col_celltype
+            # if "labels_key" not in kwargs:
+            #     kwargs["labels_key"] = col_celltype
             unlabeled = kwargs.pop("unlabeled_category", "Unlabeled")
             if "use_minified" in kwargs:
                 kws_setup["use_minified"] = kwargs.pop(x)
-            scvi.model.SCANVI.setup_anndata(
-                adata, col_celltype, unlabeled, **kws_setup)  # setup data
+            # scvi.model.SCANVI.setup_anndata(
+            #     adata, col_celltype, unlabeled, **kws_setup)  # setup data
         else:  # scVI setup
             new_pca_key = pca_scvi
             kws_setup["labels_key"] = col_celltype
-            scvi.model.SCVI.setup_anndata(adata, **kws_setup)  # setup data
+        scvi.model.SCVI.setup_anndata(adata, **kws_setup)  # setup data
         kws_train_scvi = {**kws_train}  # start with shared arguments
         for k in [i for i in ["load_sparse_tensor", "early_stopping"] if (
                 i in kwargs)]:
             kws_train_scvi[k] = kwargs.pop(k)
         model = scvi.model.SCVI(adata, **kwargs)  # scVI or scanVI model
-        model.train(**kws_train_scvi)  # train model
-        adata.obsm[pca_scvi] = model.get_latent_representation()
+        if use_rapids is True:
+            try:
+                model.to_device(0)  # also moves model to GPU 0
+                model.train(**kws_train_scvi)  # train model
+            except Exception as err:
+                print(err)
+        else:
+            model.train(**kws_train_scvi)  # train model
         if flavor.lower() == "scanvi":
-            scvi.model.SCANVI.from_scvi_model(
+            vimodel = scvi.model.SCANVI.from_scvi_model(
                 model, adata=adata, labels_key=col_celltype,
                 unlabeled_category=unlabeled, **kwargs)
-            model.train(**kws_train_scanvi)
-            adata.obsm[new_pca_key] = model.get_latent_representation(adata)
+            if use_rapids is True:
+                try:
+                    vimodel.to_device(0)  # also moves model to GPU 0
+                    vimodel.train(**kws_train_scanvi)
+                    vimodel.to_device("cpu")
+                except Exception as err:
+                    print(err)
+            else:
+                vimodel.train(**kws_train_scanvi)
+            adata.obsm[new_pca_key] = vimodel.get_latent_representation(adata)
+        if use_rapids is True:
+            model.to_device("cpu")
+        adata.obsm[pca_scvi] = model.get_latent_representation()
 
     # Scanorama
     elif flavor.lower() == "scanorama":
