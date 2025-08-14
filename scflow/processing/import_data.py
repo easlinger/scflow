@@ -21,17 +21,20 @@ try:
     # rmm.reinitialize(managed_memory=False, pool_allocator=True)
     # rmm.reinitialize(managed_memory=True)
     # cupy.cuda.set_allocator(rmm_cupy_allocator)
-    warn("Cannot import rapids_singlecell.")
 except Exception:
+    warn("Cannot import rapids_singlecell.")
     rsc = None
 try:
-    from scib_metrics.benchmark import Benchmarker
+    from scib_metrics.benchmark import (
+        Benchmarker, BioConservation, BatchCorrection)
+    # import jax
 except Exception:
     pass
 try:
     import scanorama
 except Exception:
     pass
+import pandas as pd
 import numpy as np
 import scflow
 
@@ -260,9 +263,18 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
                 isinstance(col_covs, str)) else col_covs[1]
         kts = ["max_epochs", "accelerator", "devices", "train_size",
                "validation_size", "shuffle_set_split", "batch_size",
-               "datasplitter_kwargs", "plan_kwargs", "datamodule"]
+               "datasplitter_kwargs", "plan_kwargs", "datamodule",
+               "benchmark", "default_root_dir",
+               "enable_checkpointing", "checkpointing_monitor",
+               "num_sanity_val_steps", "enable_model_summary",
+               "early_stopping", "early_stopping_monitor",
+               "early_stopping_min_delta", "early_stopping_patience",
+               "early_stopping_warmup_epochs", "early_stopping_mode",
+               "enable_progress_bar", "progress_bar_refresh_rate",
+               "simple_progress_bar", "logger",
+               "log_every_n_steps", "learning_rate_monitor"]
         kws_train = {}
-        for k in [i for i in kts if i in kwargs]:
+        for k in pd.unique([i for i in kts if i in kwargs]):
             kws_train[k] = kwargs.pop(k)  # extract shared training arguments
         if flavor.lower() == "scanvi":  # scANVI setup
             new_pca_key = "X_scANVI"
@@ -285,31 +297,43 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
         for k in [i for i in ["load_sparse_tensor", "early_stopping"] if (
                 i in kwargs)]:
             kws_train_scvi[k] = kwargs.pop(k)
-        model = scvi.model.SCVI(adata, **kwargs)  # scVI or scanVI model
-        if use_rapids is True:
-            try:
-                model.to_device(0)  # also moves model to GPU 0
-                model.train(**kws_train_scvi)  # train model
-            except Exception as err:
-                print(err)
-        else:
-            model.train(**kws_train_scvi)  # train model
+        print(f"\t***Setting up scVI model: {kwargs}...")
+        model = scvi.model.SCVI(adata, **kwargs)  # scVI or scANVI model
+        print(f"\t***Traning scVI: {kws_train_scvi}...")
+        # if use_rapids is True:
+        #     try:
+        #         model.to_device(0)  # also moves model to GPU 0
+        #         model.train(**kws_train_scvi)  # train model
+        #     except Exception as err:
+        #         print(err)
+        # else:
+        #     model.train(**kws_train_scvi)  # train model
+        model.train(**kws_train_scvi)  # train model
         if flavor.lower() == "scanvi":
+            print(f"\t***Setting up scANVI model: {kwargs}...")
             vimodel = scvi.model.SCANVI.from_scvi_model(
                 model, adata=adata, labels_key=col_celltype,
                 unlabeled_category=unlabeled, **kwargs)
-            if use_rapids is True:
+            print(f"\t***Traning scANVI: {kws_train_scanvi}...")
+            # if use_rapids is True:
+            #     try:
+            #         vimodel.to_device(0)  # also moves model to GPU 0
+            #         vimodel.train(**kws_train_scanvi)
+            #         vimodel.to_device("cpu")
+            #     except Exception as err:
+            #         print(err)
+            # else:
+            #     vimodel.train(**kws_train_scanvi)
+            vimodel.train(**kws_train_scanvi)
+            adata.obsm[new_pca_key] = vimodel.get_latent_representation(adata)
+            if col_celltype is not None:
                 try:
-                    vimodel.to_device(0)  # also moves model to GPU 0
-                    vimodel.train(**kws_train_scanvi)
-                    vimodel.to_device("cpu")
+                    adata.obs.loc[:, "annotation_scanvi"] = vimodel.predict(
+                        adata)
                 except Exception as err:
                     print(err)
-            else:
-                vimodel.train(**kws_train_scanvi)
-            adata.obsm[new_pca_key] = vimodel.get_latent_representation(adata)
-        if use_rapids is True:
-            model.to_device("cpu")
+        # if use_rapids is True:
+        #     model.to_device("cpu")
         adata.obsm[pca_scvi] = model.get_latent_representation()
 
     # Scanorama
@@ -338,16 +362,32 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
     return adata
 
 
-def benchmark_integration(adata, col_sample, pca_keys=None,
-                          col_celltype=None, min_max_scale=False, n_jobs=-1):
+def benchmark_integration(adata, col_sample, pca_keys=None, col_celltype=None,
+                          pre_integrated_embedding_obsm_key="X_pca_old",
+                          n_jobs=-1, precision="float32", **kwargs):
     """Benchmark integration results."""
     if pca_keys is None:
         pca_keys = ["X_pca_old", "X_scVI", "X_scANVI", "X_pca_harmony"]
     pca_keys = [i for i in pca_keys if i in adata.obsm]
+    adata = adata.copy()
+    adata.X = adata.X.astype(precision)
+    for key in adata.obsm:
+        if hasattr(adata.obsm[key], "astype"):
+            adata.obsm[key] = adata.obsm[key].astype(precision)
+    for layer_key in adata.layers.keys():
+        adata.layers[layer_key] = adata.layers[layer_key].astype(precision)
+    # jax.config.update("jax_enable_x64", True)
+    biocons = BioConservation(isolated_labels=False)
     bmr = Benchmarker(adata, batch_key=col_sample, label_key=col_celltype,
-                      embedding_obsm_keys=pca_keys, n_jobs=n_jobs)
+                      embedding_obsm_keys=pca_keys, n_jobs=n_jobs,
+                      bio_conservation_metrics=biocons,
+                      batch_correction_metrics=BatchCorrection(), **kwargs)
     bmr.benchmark()
-    bmr.plot_results_table(min_max_scale=min_max_scale)
-    results = bmr.get_results(min_max_scale=min_max_scale)
-    print(results)
+    bmr.plot_results_table(min_max_scale=True)
+    bmr.plot_results_table(min_max_scale=False)
+    results = dict(zip(["Scaled", "Unscaled"], [bmr.get_results(
+        min_max_scale=x) for x in [True, False]]))  # results table
+    for x in results:
+        print(f"\n\n{'=' * 80}\n{x} Benchmarking Results\n{'=' * 80}",
+              results[x])
     return results, bmr

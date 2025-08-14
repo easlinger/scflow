@@ -48,16 +48,12 @@ def analyze_perturbation_distance(adata, col_condition, key_pca="X_pca",
     return dfs, figs
 
 
-def analyze_perturbation_cell_composition(adata, col_celltype,
-                                          col_condition, col_sample=None,
-                                          formula=None,
-                                          generate_sample_level=True,
-                                          key_modality="coda",
-                                          palette="tab20",
-                                          reference_cell_type="automatic",
-                                          absence_threshold=0.1, est_fdr=0.1,
-                                          plot_facets=True, label_rotation=90,
-                                          level_order=None, figsize=None):
+def analyze_composition(adata, col_celltype, col_condition, col_sample=None,
+                        formula=None, generate_sample_level=True,
+                        key_modality="coda", reference_cell_type="automatic",
+                        absence_threshold=0.1, est_fdr=0.1, plot_facets=True,
+                        palette="tab20", label_rotation=90,
+                        level_order=None, figsize=None):
     """Analyze perturbation-related shifts in cell type composition."""
     if figsize is None:
         figsize = (20, 20)
@@ -138,13 +134,68 @@ def analyze_perturbation_cell_composition(adata, col_celltype,
     return sccoda_model, sccoda_data, credible_effects, figs
 
 
+def analyze_composition_tree(adata, col_celltype, col_covariates, col_sample,
+                             layer="counts", key_control=None,
+                             model_type="cell_level",
+                             reference_cell_type="automatric",
+                             inplace=False, **kwargs):
+    """Analyze shifts in cell type composition with Tasccoda."""
+    if inplace is False:
+        adata = adata.copy()
+    key_added = kwargs.pop("key_added", f"tree_{col_celltype}")
+    key_dend = kwargs.pop("dendrogram_key", f"dendrogram_{col_celltype}")
+    adata.obs = adata.obs.assign(**{col_celltype: pd.Categorical(
+        adata.obs[col_celltype])})  # to categorical
+    if key_dend not in adata.uns:
+        sc.tl.dendrogram(adata, col_celltype, inplace=True,
+                         key_added=key_dend)
+    if layer is not None:
+        adata.X = adata.layers[layer].copy()
+    if isinstance(col_covariates, str):
+        col_covariates = [col_covariates]
+    if key_control is None:
+        key_control = {}
+        for i in col_covariates:
+            if pd.api.types.is_categorical_dtype(adata.obs[i]):
+                key_control[i] = adata.obs[i].cat.categories[0]
+    if isintsance(key_control, list):
+        key_control = dict(zip(col_covariates, key_control))
+    coda_key = kwargs.pop("modality_key_2", "coda")
+    kws_prep = {"formula": kwargs.pop("formula", "+".join([
+        key_control[i] if i in key_control else i for i in col_covariates]))}
+    kprep = ["automatic_reference_absence_threshold", "tree_key", "pen_args"]
+    for x in [i for i in kprep if i in kwargs]:
+        kws_prep[x] = kwargs.pop(x)
+    tasccoda_model = pt.tl.Tasccoda()
+    adata = tasccoda_model.load(
+        adata, type=model_type, cell_type_identifier=col_celltype,
+        sample_identifier=col_sample, covariate_obs=col_covariates,
+        add_level_name=True, key_added=key_added,
+        dendrogram_key=key_dend, **kwargs)
+    tasccoda_model.plot_draw_tree(adata[coda_key])
+    # tasccoda_model.plot_boxplots(adata, modality_key="coda_LP",
+    #                              feature_name="Health", figsize=(20, 8))
+    # plt.show()
+    adata = tasccoda_model.prepare(
+        adata, modality_key=coda_key,
+        reference_cell_type=reference_cell_type, **kws_prep)
+    return adata, tasccoda_model
+
+
 def run_deg_edgr(adata, col_condition, col_covariate=None, formula=None,
                  key_treatment=None, key_control=None,
                  col_sample=None, col_celltype=None,  # for pseudo-bulking
                  log2fc_thresh=0, n_top_vars=8, layer="counts",
-                 fig_title=None, **kwargs):
+                 fig_title=None, xlabel_rotation=None, legend_loc=None,
+                 kws_subplots=None, layer_plot=None,
+                 kws_xticks=None, **kwargs):
     """Run edgeR differential gene expression testing."""
-    figs = {}
+    figs, kws_subplots = {}, kws_subplots if kws_subplots else {}
+    ksub = [k for k in ["wspace", "hspace", "left",
+                        "bottom", "right", "top"] if k in kwargs]
+    kws_xticks = {"rotation": xlabel_rotation, **dict(**kws_xticks if (
+        kws_xticks) else {})} if xlabel_rotation or kws_xticks else kws_xticks
+    kws_subplots.update(dict(zip(ksub, [kwargs.pop(k) for k in ksub])))
     if formula is None:
         formula = "~" + "+".join([col_condition, col_covariate]) if (
             col_covariate is not None) else f"~{col_condition}"
@@ -154,35 +205,50 @@ def run_deg_edgr(adata, col_condition, col_covariate=None, formula=None,
             adata, [i for i in [
                 col_sample, col_condition, col_covariate] if i],
             col_celltype, layer="counts", mode=mode)
+    if key_treatment is None and key_control is None:
+        raise ValueError("Specify `key_treatment` or `key_control`.")
+    if key_treatment is None:
+        key_treatment = [i for i in adata.obs[
+            col_condition].unique() if i != key_control]
+        if len(key_treatment) != 1:
+            raise ValueError("Specify `key_treatment` if >2 categories.")
+        key_treatment = key_treatment[0]
+    if key_control is None:
+        key_control = [i for i in adata.obs[
+            col_condition].unique() if i != key_control]
+        if len(key_control) != 1:
+            raise ValueError("Specify `key_control` if >2 categories.")
+        key_control = key_control[0]
+    if not adata.obs[col_condition].isin([key_treatment, key_control]).all():
+        print(f"***Subsetting adata by {key_treatment}, {key_control}...")
+        adata = adata[adata.obs[col_condition].isin([
+            key_treatment, key_control])].copy()  # subset to tx & control
     edgr = pt.tl.EdgeR(adata, design=formula, layer=layer)  # set up edgeR
     edgr.fit()  # fit edgeR
     if col_covariate is not None:  # contrasts
         # Infer `key_control` or `key_treatment` If Needed
-        if key_treatment is None:
-            key_treatment = [i for i in adata.obs[
-                col_condition].unique() if i != key_control]
-            if len(key_treatment) != 1:
-                raise ValueError("Specify `key_treatment` if >2 categories.")
-            key_treatment = key_treatment[0]
-        if key_control is None:
-            key_control = [i for i in adata.obs[
-                col_condition].unique() if i != key_control]
-            if len(key_control) != 1:
-                raise ValueError("Specify `key_control` if >2 categories.")
-            key_control = key_control[0]
         # Run Contrasts
         res_df = edgr.test_contrasts(edgr.contrast(
             column=col_condition, baseline=key_control,
             group_to_compare=key_treatment))
         figs["volcano"] = edgr.plot_volcano(
-            res_df, log2fc_thresh=log2fc_thresh, return_fig=True)
+            res_df, log2fc_thresh=log2fc_thresh, return_fig=True)  # volcano
         if fig_title is not None:
             figs["volcano"].suptitle(fig_title)
         figs["paired"] = edgr.plot_paired(
-            adata, results_df=res_df, n_top_vars=n_top_vars,
-            groupby=col_condition, pairedby=col_covariate, return_fig=True)
+            adata, results_df=res_df, n_top_vars=n_top_vars, layer=layer_plot,
+            groupby=col_condition, pairedby=col_covariate, return_fig=True,
+            show_legend=False if legend_loc is not None else True)  # paired
         if fig_title is not None:
             figs["paired"].suptitle(fig_title)
+        if kws_xticks:
+            for a in figs["paired"].axes:
+                a.tick_params(axis="x", rotation=xlabel_rotation)
+        if len(kws_subplots) > 0:
+            figs["paired"].subplots_adjust(**kws_subplots)
+        if legend_loc not in [None, False]:
+            handles, labels = figs["paired"].axes[0].get_legend_handles_labels()
+            figs["paired"].legend(handles, labels, loc=legend_loc)
     else:
         # res_df = None
         res_df = edgr.compare_groups(

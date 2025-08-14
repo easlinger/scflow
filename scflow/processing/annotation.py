@@ -31,6 +31,12 @@ def annotate_by_marker_overlap(adata, marker_gene_dict, col_celltype="leiden",
     """Annotate by overlap with pre-defined marker genes."""
     if inplace is False:
         adata = adata.copy()
+    if celltypes_superhierarchical is not None:
+        valid_supers = set(celltypes_superhierarchical).intersection(
+            marker_gene_dict)  # valid superclusters
+        celltypes_superhierarchical = None if len(
+            valid_supers) == 0 else dict(zip(celltypes_superhierarchical, [
+                celltypes_superhierarchical[s] for s in valid_supers]))
     key = kwargs.pop("key_added", f"rank_genes_groups_{col_celltype}")
     if col_celltype_new is None:
         col_celltype_new = "annotation_by_marker_overlap"
@@ -38,9 +44,24 @@ def annotate_by_marker_overlap(adata, marker_gene_dict, col_celltype="leiden",
     marker_matches = sc.tl.marker_gene_overlap(
         adata, marker_gene_dict, key=key,
         key_added=new, **kwargs)  # detect marker overlap
-    new_lbls = dict(marker_matches.apply(
+    new_lbls = marker_matches.apply(
         lambda x: sep.join(np.array(marker_matches.index.values)[
-            np.where(x == max(x))[0]])))  # find where most overlap
+            np.where(x == max(x))[0]]))  # find top matches
+    if celltypes_superhierarchical is not None:
+        # replace supercluster with subcluster if runner-up
+        for k in celltypes_superhierarchical:
+            marker_matches[new_lbls[new_lbls.apply(
+                lambda x: x == k)].index].apply(lambda x: sep.join(np.array(
+                    marker_matches.index.values)[np.where(x == max(x))[0]]))
+            mks = marker_matches[new_lbls[new_lbls.apply(
+                lambda x: x == k)].index].drop(k).apply(
+                    lambda x: sep.join(np.array(marker_matches.index.values)[
+                        np.where(x == max(x))[0]]))
+            mks = mks.apply(lambda x: x if x in celltypes_superhierarchical[
+                k] else np.nan).dropna()
+            new_lbls = pd.concat([new_lbls.drop(new_lbls.index.intersection(
+                mks.index)), mks])  # update with runner-up
+    new_lbls = dict(new_lbls)
     if celltypes_superhierarchical is not None:
         # drop superclusters in heteregeneous labels if subcluster present?
         for s in celltypes_superhierarchical:  # iterate superclusters

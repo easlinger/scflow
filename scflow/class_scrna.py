@@ -11,7 +11,7 @@ import scflow
 # from scflow import Regression
 # from scflow.processing import import_data
 import pandas as pd
-import numpy as np
+# import numpy as np
 
 layer_log1p = "log1p"  # TODO: MOVE THESE TO CONSTANTS MODULE
 layer_counts = "counts"
@@ -54,12 +54,16 @@ class Rna(object):
 
         """
         integrated = False
+        if kws_read is None:
+            kws_read = {}
         if isinstance(file_path, (list, dict)) or (
                 kws_integrate is not None):  # integrate samples/batches
             if kws_integrate is None:
                 kws_integrate = {}
             if col_sample is None:
                 col_sample = "sample"
+            if isinstance(file_path, str):
+                file_path = scflow.pp.read_scrna(file_path, **kws_read)
             # if isinstance(file_path, (list, dict)):  # if not concatenated
             #     if not isinstance(kws_read, list):  # if not sample-specific
             #         kws_read = [kws_read] * len(file_path)  # use same
@@ -87,8 +91,6 @@ class Rna(object):
                     adata.var_names = adata.var[kws_read[
                         "var_names"]].to_list()
         else:  # read single file
-            if kws_read is None:
-                kws_read = {}
             if "var_names" in kwargs:
                 kws_read["var_names"] = kwargs.pop("var_names")
             adata = scflow.pp.read_scrna(file_path, **kws_read)
