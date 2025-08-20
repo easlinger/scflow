@@ -194,17 +194,20 @@ class Rna(object):
             kind = [k.lower() for k in kind]  # make not case-sensitive
         fig = {}  # to hold plots
         for k in kind:  # iterate plot kinds
+            if k not in kwargs:
+                kwargs[k] = {}
             ttl = title[k] if isinstance(
                 title, dict) and k in title else title  # plot title
             f_x = scflow.get_plot_fx(k)  # get the right plot function
-            kwargs[k]["layer"] = layer
+            if "layer" not in kwargs[k]:
+                kwargs[k]["layer"] = layer
             if k in genes_plots and "genes" not in kwargs[k]:  # if needed...
                 kwargs[k].update({"genes": genes})  # ...specify "genes"
             if k in colors_plots and "color" not in kwargs[k]:  # if needed...
                 kwargs[k].update({"color": color})  # ...specify grouping
             if k in gby and "col_celltype" not in kwargs[k]:
                 kwargs[k]["col_celltype"] = col_celltype  # specify cell type
-            if k != "umap":
+            if k != "umap" and "figsize" not in kwargs[k]:
                 kwargs[k]["figsize"] = figsize
             if subset is not None and "dendrogram" in kwargs[k] and kwargs[
                     k]["dendrogram"] is True and "col_celltype" in kwargs[k]:

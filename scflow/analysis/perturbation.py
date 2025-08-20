@@ -53,7 +53,7 @@ def analyze_composition(adata, col_celltype, col_condition, col_sample=None,
                         key_modality="coda", reference_cell_type="automatic",
                         absence_threshold=0.1, est_fdr=0.1, plot_facets=True,
                         palette="tab20", label_rotation=90,
-                        level_order=None, figsize=None):
+                        level_order=None, figsize=None, seed=0, **kwargs):
     """Analyze perturbation-related shifts in cell type composition."""
     if figsize is None:
         figsize = (20, 20)
@@ -86,14 +86,24 @@ def analyze_composition(adata, col_celltype, col_condition, col_sample=None,
             for a in figs["box"].fig.axes:
                 a.tick_params(axis="x", labelrotation=label_rotation)
         plt.show()
-    sccoda_model.run_nuts(sccoda_data, modality_key=key_modality)
+    kws_nuts = {"rng_key": seed}
+    kws_nuts["num_warmup"] = kwargs.pop("num_warmup", 10000)
+    kws_nuts["num_samples"] = kwargs.pop("num_samples", 1000)
+    sccoda_model.run_nuts(sccoda_data, **kws_nuts, modality_key=key_modality)
     if est_fdr not in [None, False]:
         sccoda_model.set_fdr(sccoda_data, modality_key=key_modality,
                              est_fdr=est_fdr)
     sccoda_model.summary(sccoda_data, modality_key=key_modality)
     credible_effects = sccoda_model.credible_effects(
         sccoda_data, modality_key=key_modality)
-
+    # try:
+    #     figs["effects"] = sccoda_model.plot_draw_effects(
+    #         sccoda_data, col_condition, modality_key=key_modality,
+    #         show_legend=None, show_leaf_effects=True, tight_text=False,
+    #         show_scale=False, figsize=figsize, dpi=100,
+    #         save=False, return_fig=True)
+    # except Exception as e:
+    #     print(e)
     # def _run_comps(sccoda_data, sccoda_model, adata, reference,
     #                col_condition, formula, key_modality="coda",
     #                est_fdr=0.1):
@@ -158,7 +168,7 @@ def analyze_composition_tree(adata, col_celltype, col_covariates, col_sample,
         for i in col_covariates:
             if pd.api.types.is_categorical_dtype(adata.obs[i]):
                 key_control[i] = adata.obs[i].cat.categories[0]
-    if isintsance(key_control, list):
+    if isinstance(key_control, list):
         key_control = dict(zip(col_covariates, key_control))
     coda_key = kwargs.pop("modality_key_2", "coda")
     kws_prep = {"formula": kwargs.pop("formula", "+".join([
@@ -185,7 +195,8 @@ def analyze_composition_tree(adata, col_celltype, col_covariates, col_sample,
 def run_deg_edgr(adata, col_condition, col_covariate=None, formula=None,
                  key_treatment=None, key_control=None,
                  col_sample=None, col_celltype=None,  # for pseudo-bulking
-                 log2fc_thresh=0, n_top_vars=8, layer="counts",
+                 log2fc_thresh=0, n_top_vars=8,
+                 layer="counts", layer_counts="counts",
                  fig_title=None, xlabel_rotation=None, legend_loc=None,
                  kws_subplots=None, layer_plot=None,
                  kws_xticks=None, **kwargs):
@@ -204,7 +215,14 @@ def run_deg_edgr(adata, col_condition, col_covariate=None, formula=None,
         adata = scflow.tl.create_pseudobulk(
             adata, [i for i in [
                 col_sample, col_condition, col_covariate] if i],
-            col_celltype, layer="counts", mode=mode)
+            col_celltype, layer=layer_counts, mode=mode)
+        adata.layers[layer_counts] = adata.X.copy()  # save scaled layer
+        # sc.pp.normalize_total(adata, target_sum=1e4)
+        # sc.pp.log1p(adata)
+        # sc.pp.scale(adata, max_value=10)
+        # sc.pp.pca(adata)
+        # adata.layers[layer] = adata.X.copy()  # save scaled layer
+        # adata.X = adata.layers[layer_counts].copy()  # change layer
     if key_treatment is None and key_control is None:
         raise ValueError("Specify `key_treatment` or `key_control`.")
     if key_treatment is None:
@@ -219,10 +237,12 @@ def run_deg_edgr(adata, col_condition, col_covariate=None, formula=None,
         if len(key_control) != 1:
             raise ValueError("Specify `key_control` if >2 categories.")
         key_control = key_control[0]
-    if not adata.obs[col_condition].isin([key_treatment, key_control]).all():
+    keytc = [key_treatment, key_control] if isinstance(
+        key_treatment, str) else key_treatment + [key_control]
+    if not adata.obs[col_condition].isin(keytc).all():
         print(f"***Subsetting adata by {key_treatment}, {key_control}...")
-        adata = adata[adata.obs[col_condition].isin([
-            key_treatment, key_control])].copy()  # subset to tx & control
+        adata = adata[adata.obs[col_condition].isin(
+            keytc)].copy()  # subset to tx & control
     edgr = pt.tl.EdgeR(adata, design=formula, layer=layer)  # set up edgeR
     edgr.fit()  # fit edgeR
     if col_covariate is not None:  # contrasts
@@ -247,18 +267,84 @@ def run_deg_edgr(adata, col_condition, col_covariate=None, formula=None,
         if len(kws_subplots) > 0:
             figs["paired"].subplots_adjust(**kws_subplots)
         if legend_loc not in [None, False]:
-            handles, labels = figs["paired"].axes[0].get_legend_handles_labels()
+            handles, labels = figs["paired"].axes[
+                0].get_legend_handles_labels()
             figs["paired"].legend(handles, labels, loc=legend_loc)
+        res_df = res_df.assign(abs_log_fc=np.abs(res_df["log_fc"]))
     else:
         # res_df = None
         res_df = edgr.compare_groups(
             adata, column=col_condition, baseline=key_control,
-            groups_to_compare=key_treatment, layer=layer)
+            groups_to_compare=key_treatment,  layer=layer)
         figs["mcf"] = edgr.plot_multicomparison_fc(
             res_df, figsize=(12, 1.5), return_fig=True)
         if fig_title is not None:
             figs["mcf"].suptitle(fig_title)
     return res_df, figs
+
+
+def run_deg_pydeseq(adata, col_condition, col_covariate=None, n_top_vars=15,
+                    col_celltype=None, col_sample=None, formula=None,
+                    key_control=None, key_treatment=None,
+                    threshold_l2fc=0, layer="counts", figsize=None, **kwargs):
+    """Run PyDESeq2 differential gene expression testing."""
+    figs = {}
+    key_control_cov, key_treatment_cov = key_control.pop(
+        col_covariate, None), key_treatment.pop(col_covariate, None)
+    key_control, key_treatment = key_control[col_condition], key_treatment[
+        col_condition]
+    if figsize is None:
+        figsize = (12, 1.5)
+    to_compare = [key_treatment] if isinstance(
+        key_treatment, str) else key_treatment
+    if formula is None:
+        formula = "~" + " + ".join([col_condition, col_covariate]) if (
+            col_covariate is not None) else f"~{col_condition}"
+        if col_covariate is not None:
+            formula_int = formula + " + " + "*".join([
+                col_condition, col_covariate])
+    print(f"***Using formula: {formula}...")
+    if col_celltype is not None:  # create pseudo-bulk if needed
+        print("***Pseudo-bulking...")
+        mode = kwargs.pop("mode", "sum")
+        adata = scflow.tl.create_pseudobulk(
+            adata, col_sample, col_celltype, layer="counts", mode=mode)
+    pds2 = pt.tl.PyDESeq2(adata=adata, design=formula)
+    pds2.fit()
+    res_df = pds2.test_contrasts(pds2.contrast(
+        column=col_condition, baseline=key_control,
+        group_to_compare=key_treatment))
+    figs["lfc"] = pds2.plot_fold_change(res_df, n_top_vars=n_top_vars)
+    print(res_df.head(n_top_vars))
+    pds2.plot_volcano(res_df, log2fc_thresh=threshold_l2fc)
+    res_df_contr = pds2.compare_groups(
+        adata, column=col_condition, baseline=key_control,
+        groups_to_compare=to_compare)
+    print(res_df_contr)
+    pds2.plot_volcano(res_df_contr, log2fc_thresh=threshold_l2fc)
+    pds2b = pt.tl.PyDESeq2(adata=adata, design=formula_int)
+    edgr = pt.tl.EdgeR(adata, design=formula, layer=layer)
+    edgr.plot_multicomparison_fc(res_df_contr, figsize=figsize)
+    ctl = {col_condition: key_control, col_covariate: key_control_cov}
+    txs = {col_condition: key_treatment, col_covariate: key_treatment_cov}
+    mix1 = {col_condition: key_treatment, col_covariate: key_control_cov}
+    mix2 = {col_condition: key_control, col_covariate: key_treatment_cov}
+    interaction_contrast = (pds2b.cond(**txs) - pds2b.cond(**mix1)) - (
+        pds2b.cond(**ctl) - pds2b.cond(**mix2))
+    print(f"Interaction:\n{interaction_contrast}")
+    # interaction_res_df = pds2b.test_contrasts(interaction_contrast)
+    gen_ctr = pds2b.cond(**{col_covariate: key_treatment_cov}) - pds2.cond(
+        **{col_covariate: key_control_cov})
+    print(gen_ctr)
+    # return pds2, interaction_contrast, gen_ctr
+    interaction_res_df = pds2b.test_contrasts(
+        {f"{key_treatment}_specific": interaction_contrast,
+         "General": gen_ctr})
+    print(interaction_res_df)
+    pds2b.plot_volcano(interaction_res_df, log2fc_thresh=threshold_l2fc)
+    edgr.plot_multicomparison_fc(interaction_res_df, figsize=figsize)
+    # return res_df, res_df_contr, interaction_res_df, pds2, pds2b, figs
+    return res_df, res_df_contr, pds2, figs
 
 
 def run_mixscape(adata, col_condition, col_guide,
@@ -283,8 +369,8 @@ def run_mixscape(adata, col_condition, col_guide,
     sc.pp.pca(adata)
     sc.pp.neighbors(adata, metric="cosine")
     sc.tl.umap(adata)
-    ms_pt.mixscape(adata=adata, control=key_control, labels=col_guide,
-                   layer="X_pert")
+    ms_pt.mixscape(adata=adata, control=key_control,
+                   labels=col_guide, layer="X_pert")
     # TODO: Continue coding
     adata.X = adata.layers["original"].copy()
     _ = adata.layers.pop("original")

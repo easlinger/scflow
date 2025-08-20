@@ -151,7 +151,13 @@ def annotate_by_toppgene(genes, categories=None, source_patterns=None,
             "https://toppgene.cchmc.org/API/lookup", json={"Symbols": ids},
             headers={"Content-Type": "application/json"})
         lookup = response.json()
-        genes = [int(gene["Entrez"]) for gene in lookup.get("Genes", [])]
+        lug = lookup.get("Genes", [])
+        if lug:
+            genes = [int(gene["Entrez"]) for gene in lug]
+        else:
+            warn("No genes found in translation.")
+            return pd.DataFrame(index=pd.MultiIndex.from_arrays([
+                [], []], names=["Category", "ID"]))
     params = {"Genes": genes, "MaxResults": max_results}
     response = requests.post(
         "https://toppgene.cchmc.org/API/enrich",

@@ -12,6 +12,27 @@ retrieval of plot functions.
 
 import matplotlib.pyplot as plt
 import scanpy as sc
+import math
+import numpy as np
+import pandas as pd
+
+
+def square_grid(n_subs):
+    """Create a square grid for plotting."""
+    n_subs = len(n_subs) if isinstance(n_subs, (
+        list, tuple, np.ndarray, pd.Series)) else n_subs
+    root = int(math.sqrt(n_subs))
+    rows, cols = root, root
+    while rows * cols < n_subs:
+        if cols <= rows:
+            cols += 1
+        else:
+            rows += 1
+    if rows == 1 and cols > 2:
+        rows, cols = 2, math.ceil(n_subs / 2)
+    if cols == 1 and rows > 2:
+        cols, rows = 2, math.ceil(n_subs / 2)
+    return rows, cols
 
 
 def plot_scatter(adata, var_x, var_y, title=None, **kwargs):

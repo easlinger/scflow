@@ -5,7 +5,8 @@ from .basic_plots import (
     plot_matrix,
     plot_violin,
     plot_stacked_violin,
-    plot_umap
+    plot_umap,
+    square_grid
 )
 
 __all__ = [
@@ -15,5 +16,6 @@ __all__ = [
     "plot_matrix",
     "plot_violin",
     "plot_stacked_violin",
-    "plot_umap"
+    "plot_umap",
+    "square_grid"
 ]

@@ -12,22 +12,26 @@ import warnings
 import matplotlib.pyplot as plt
 import seaborn as sns
 import scanpy as sc
+import scipy.sparse as sp
 from warnings import warn
 try:
     import cupyx as cpx
+    import cupy
     # from cupyx.scipy.sparse import csr_matrix as cupy_csr_matrix
     # import cupy
     import rapids_singlecell as rsc
     import rmm
-    # from rmm.allocators.cupy import rmm_cupy_allocator
+    from rmm.allocators.cupy import rmm_cupy_allocator
 except Exception:
     rsc, cpx, rmm = None, None, None
     warn("Cannot import rapids_singlecell.")
+    cupy = None
 import pandas as pd
+# import numpy as np
 
-# if rmm:
-#     rmm.reinitialize(managed_memory=True)
-#     cupy.cuda.set_allocator(rmm_cupy_allocator)
+if rmm:
+    rmm.reinitialize(managed_memory=True, pool_allocator=False)
+    cupy.cuda.set_allocator(rmm_cupy_allocator)
 
 
 def preprocess(adata, min_max_genes=None, min_max_cells=None,
@@ -120,9 +124,23 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
         adata = adata[adata.obs["pct_counts_mt"] <= max_mt]
 
     # Doublet Detection
-    if doublet_detection is True:
+    if doublet_detection in [True, "drop"]:
         print("\t***Performing doublet detection...")
-        pkg.pp.scrublet(adata, batch_key=col_sample)
+        # pkg.pp.scrublet(adata, batch_key=col_sample)  # detect doublets
+        # if use_rapids is True:
+        #     if isinstance(adata.X, cupy.sparse.spmatrix):
+        #         adata.X = adata.X.get()
+        #     elif isinstance(adata.X, cupy.ndarray):
+        #         adata.X = adata.X.get()
+        #     if not sp.issparse(adata.X):
+        #         adata.X = sp.csr_matrix(adata.X).toarray().astype("float32")
+        #     adata.X = np.ascontiguousarray(adata.X, dtype="float32")
+        pkg.pp.scrublet(adata, batch_key=col_sample)  # detect doublets
+        if doublet_detection == "drop":
+            adata = adata[~adata.obs[
+                "predicted_doublet"]].copy()  # drop doublets
+        # if use_rapids is True:
+        #     rsc.get.anndata_to_GPU(adata)
 
     # Normalization & Regress Out (Optional)
     if normalize is True:

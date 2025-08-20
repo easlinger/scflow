@@ -34,6 +34,7 @@ dependencies = [
     "scvi-tools",
     "pertpy[de]",
     "ensembl_rest",
+    "gseapy",
 
     # Plotting
     "matplotlib>=3.9.0",
