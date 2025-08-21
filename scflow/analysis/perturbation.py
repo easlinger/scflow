@@ -8,6 +8,7 @@ Functions for analyzing perturbation effects.
 
 import matplotlib.pyplot as plt
 import seaborn as sns
+import jax
 from warnings import warn
 import scanpy as sc
 import pertpy as pt
@@ -72,8 +73,7 @@ def analyze_composition(adata, col_celltype, col_condition, col_sample=None,
         cell_type_identifier=col_celltype, sample_identifier=col_sample,
         covariate_obs=col_condition)
     sccoda_data = sccoda_model.prepare(
-        sccoda_data, modality_key=key_modality,
-        formula="+".join(col_condition),
+        sccoda_data, modality_key=key_modality, formula=formula,
         reference_cell_type=reference_cell_type,
         automatic_reference_absence_threshold=absence_threshold)
     sccoda_model = pt.tl.Sccoda()
@@ -86,7 +86,7 @@ def analyze_composition(adata, col_celltype, col_condition, col_sample=None,
             for a in figs["box"].fig.axes:
                 a.tick_params(axis="x", labelrotation=label_rotation)
         plt.show()
-    kws_nuts = {"rng_key": seed}
+    kws_nuts = {"rng_key": jax.random.key(seed) if full_hmc is True else seed}
     for x in [i for i in ["num_warmup", "num_samples"] if i in kwargs]:
         kws_nuts[x] = kwargs.pop(x)
     f_x = sccoda_model.run_hmc if full_hmc is True else sccoda_model.run_nuts
