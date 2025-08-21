@@ -65,8 +65,10 @@ def analyze_composition(adata, col_celltype, col_condition, col_sample=None,
         print(f"\n\n***Analyzing cell type composition, {col_condition[0]} "
               f"= main group with {col_condition[1:]} as covariates.")
     if formula is None:
-        formula = "(" + ", ".join(col_condition) + ")" if len(
-            col_condition) > 1 else col_condition
+        # formula = "(" + ", ".join(col_condition) + ")" if len(
+        #     col_condition) > 1 else col_condition
+        formula = " + ".join(col_condition) if len(
+            col_condition) > 1 else col_condition[0]
     sccoda_model = pt.tl.Sccoda()
     sccoda_data = sccoda_model.load(
         adata, type="cell_level", generate_sample_level=generate_sample_level,
