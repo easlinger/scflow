@@ -35,6 +35,8 @@ dependencies = [
     "pertpy[de]",
     "ensembl_rest",
     "gseapy",
+    "ott-jax",
+    "pyqt6",
 
     # Plotting
     "matplotlib>=3.9.0",

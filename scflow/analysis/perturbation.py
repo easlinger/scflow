@@ -8,8 +8,11 @@ Functions for analyzing perturbation effects.
 
 import matplotlib.pyplot as plt
 import seaborn as sns
-import jax
+# import jax
 from warnings import warn
+from PIL import Image
+import tempfile
+import os
 import scanpy as sc
 import pertpy as pt
 import pandas as pd
@@ -88,7 +91,9 @@ def analyze_composition(adata, col_celltype, col_condition, col_sample=None,
             for a in figs["box"].fig.axes:
                 a.tick_params(axis="x", labelrotation=label_rotation)
         plt.show()
-    kws_nuts = {"rng_key": jax.random.key(seed) if full_hmc is True else seed}
+    # kws_nuts = {
+    #     "rng_key": jax.random.key(seed) if full_hmc is True else seed}
+    kws_nuts = {"rng_key": seed}
     for x in [i for i in ["num_warmup", "num_samples"] if i in kwargs]:
         kws_nuts[x] = kwargs.pop(x)
     f_x = sccoda_model.run_hmc if full_hmc is True else sccoda_model.run_nuts
@@ -154,19 +159,27 @@ def analyze_composition(adata, col_celltype, col_condition, col_sample=None,
 
 def analyze_composition_tree(adata, col_celltype, col_covariates, col_sample,
                              layer="counts", key_control=None,
-                             model_type="cell_level",
+                             col_celltype_hierarchy=None,
+                             dendrogram_key=None,
+                             model_type="cell_level", formula=None,
                              reference_cell_type="automatric",
-                             inplace=False, **kwargs):
+                             inplace=False, seed=0, figsize=None, **kwargs):
     """Analyze shifts in cell type composition with Tasccoda."""
     if inplace is False:
         adata = adata.copy()
-    key_added = kwargs.pop("key_added", f"tree_{col_celltype}")
-    key_dend = kwargs.pop("dendrogram_key", f"dendrogram_{col_celltype}")
+    if figsize is None:
+        figsize = (800, 800)
+    plot_kws = {"show_legend": False, "show_leaf_effects": True}
+    for x in plot_kws:
+        plot_kws[x] = kwargs.pop(x) if x in kwargs else plot_kws[x]
+    figs = {}
+    key_added = kwargs.pop("key_added", f"tree")
+    # key_dend = kwargs.pop("dendrogram_key", f"dendrogram_{col_celltype}")
     adata.obs = adata.obs.assign(**{col_celltype: pd.Categorical(
         adata.obs[col_celltype])})  # to categorical
-    if key_dend not in adata.uns:
-        sc.tl.dendrogram(adata, col_celltype, inplace=True,
-                         key_added=key_dend)
+    # if key_dend not in adata.uns:
+    #     sc.tl.dendrogram(adata, col_celltype, inplace=True,
+    #                      key_added="dendrogram_cell_label")
     if layer is not None:
         adata.X = adata.layers[layer].copy()
     if isinstance(col_covariates, str):
@@ -178,26 +191,65 @@ def analyze_composition_tree(adata, col_celltype, col_covariates, col_sample,
                 key_control[i] = adata.obs[i].cat.categories[0]
     if isinstance(key_control, list):
         key_control = dict(zip(col_covariates, key_control))
+    if formula is None:
+        formula = " + ".join(col_covariates) if len(
+            col_covariates) > 1 else col_covariates[0]
     coda_key = kwargs.pop("modality_key_2", "coda")
-    kws_prep = {"formula": kwargs.pop("formula", "+".join([
-        key_control[i] if i in key_control else i for i in col_covariates]))}
-    kprep = ["automatic_reference_absence_threshold", "tree_key", "pen_args"]
+    kws_prep = {"formula": formula}
+    kprep = ["automatic_reference_absence_threshold", "pen_args"]
     for x in [i for i in kprep if i in kwargs]:
         kws_prep[x] = kwargs.pop(x)
+    if "add_level_name" not in kwargs:
+        kwargs["add_level_name"] = False
     tasccoda_model = pt.tl.Tasccoda()
     adata = tasccoda_model.load(
         adata, type=model_type, cell_type_identifier=col_celltype,
+        levels_orig=col_celltype_hierarchy,
         sample_identifier=col_sample, covariate_obs=col_covariates,
-        add_level_name=True, key_added=key_added,
-        dendrogram_key=key_dend, **kwargs)
+        key_added=key_added,
+        dendrogram_key=dendrogram_key, **kwargs)
     tasccoda_model.plot_draw_tree(adata[coda_key])
     # tasccoda_model.plot_boxplots(adata, modality_key="coda_LP",
     #                              feature_name="Health", figsize=(20, 8))
     # plt.show()
     adata = tasccoda_model.prepare(
-        adata, modality_key=coda_key,
+        adata, modality_key=coda_key, tree_key=key_added,
         reference_cell_type=reference_cell_type, **kws_prep)
-    return adata, tasccoda_model
+    kws_nuts = {"rng_key": seed}
+    for x in [i for i in ["num_warmup", "num_samples"] if i in kwargs]:
+        kws_nuts[x] = kwargs.pop(x)
+    tasccoda_model.run_nuts(adata, modality_key=coda_key, **kws_nuts)  # MCMC
+    tasccoda_model.summary(adata, modality_key=coda_key)
+    try:
+        figs["barplot"] = tasccoda_model.plot_effects_barplot(
+            adata, modality_key=coda_key,
+            covariates=col_covariates, return_fig=True)
+    except Exception as err:
+        warn(f"Tasccoda plot bar failed!\n{err}")
+    figs["effects"] = {}
+    try:
+        cov_keys = [i.split("_node")[0] for i in adata[coda_key].uns[
+            "scCODA_params"]["node_df"].reset_index()["Covariate"].unique()]
+        for x in cov_keys:
+            try:
+                figs["effects"][x] = tasccoda_model.plot_draw_effects(
+                    adata, x, modality_key=coda_key, return_fig=True)
+                tree, treestyle = figs["effects"][x]
+                with tempfile.NamedTemporaryFile(
+                        suffix=".png", delete=False) as tmp:
+                    filename = tmp.name
+                tree.render(filename, w=figsize[0], units="px",
+                            tree_style=treestyle)
+                img = Image.open(filename)
+                plt.imshow(img)
+                plt.axis("off")
+                plt.show()
+                os.remove(filename)
+            except Exception as err:
+                warn(f"Tasccoda plot effects failed for {x}!\n{err}")
+    except Exception as err:
+        warn(f"Tasccoda plot effects failed!\n{err}")
+    return tasccoda_model, adata, figs
 
 
 def run_deg_edgr(adata, col_condition, col_covariate=None, formula=None,
