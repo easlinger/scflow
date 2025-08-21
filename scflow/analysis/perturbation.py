@@ -52,7 +52,7 @@ def analyze_composition(adata, col_celltype, col_condition, col_sample=None,
                         formula=None, generate_sample_level=True,
                         key_modality="coda", reference_cell_type="automatic",
                         absence_threshold=0.1, est_fdr=0.1, plot_facets=True,
-                        palette="tab20", label_rotation=90,
+                        palette="tab20", label_rotation=90, full_hmc=False,
                         level_order=None, figsize=None, seed=0, **kwargs):
     """Analyze perturbation-related shifts in cell type composition."""
     if figsize is None:
@@ -75,7 +75,7 @@ def analyze_composition(adata, col_celltype, col_condition, col_sample=None,
         sccoda_data, modality_key=key_modality,
         formula="+".join(col_condition),
         reference_cell_type=reference_cell_type,
-        automatic_reference_absence_threshold=absence_threshold,)
+        automatic_reference_absence_threshold=absence_threshold)
     sccoda_model = pt.tl.Sccoda()
     for c in col_condition:
         figs["box"] = sccoda_model.plot_boxplots(
@@ -87,17 +87,23 @@ def analyze_composition(adata, col_celltype, col_condition, col_sample=None,
                 a.tick_params(axis="x", labelrotation=label_rotation)
         plt.show()
     kws_nuts = {"rng_key": seed}
-    kws_nuts["num_warmup"] = kwargs.pop("num_warmup", 10000)
-    kws_nuts["num_samples"] = kwargs.pop("num_samples", 1000)
-    sccoda_model.run_nuts(sccoda_data, **kws_nuts, modality_key=key_modality)
+    for x in [i for i in ["num_warmup", "num_samples"] if i in kwargs]:
+        kws_nuts[x] = kwargs.pop(x)
+    f_x = sccoda_model.run_hmc if full_hmc is True else sccoda_model.run_nuts
+    f_x(sccoda_data, **kws_nuts, modality_key=key_modality)  # MCMC
     if est_fdr not in [None, False]:
         sccoda_model.set_fdr(sccoda_data, modality_key=key_modality,
-                             est_fdr=est_fdr)
-    sccoda_model.summary(sccoda_data, modality_key=key_modality)
+                             est_fdr=est_fdr)  # FDR
+    sccoda_model.summary(sccoda_data, modality_key=key_modality,
+                         extended=True)
     credible_effects = sccoda_model.credible_effects(
         sccoda_data, modality_key=key_modality)
+    cred_tmp = credible_effects.unstack(0).replace(
+        False, "").replace(True, "*")
+    print(f"\n\n{'=' * 50}   Credible Effects   {'=' * 50}\n\n",
+          f"{cred_tmp}\n\n{'=' * 122}\n\n\n")
     # try:
-    #     figs["effects"] = sccoda_model.plot_draw_effects(
+    #     figs["effects"]   = sccoda_model.plot_draw_effects(
     #         sccoda_data, col_condition, modality_key=key_modality,
     #         show_legend=None, show_leaf_effects=True, tight_text=False,
     #         show_scale=False, figsize=figsize, dpi=100,
