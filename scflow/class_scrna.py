@@ -267,9 +267,9 @@ class Rna(object):
         else:
             return adata
 
-    def find_markers(self, n_genes=None, rankby_abs=False,
-                     col_celltype=None, key_added=None, plot=True,
-                     inplace=True):
+    def find_markers(self, n_genes=None, col_celltype=None,
+                     rankby_abs=False, key_added=None,
+                     plot=True, inplace=True):
         """Find marker genes for clusters."""
         if col_celltype is None:
             col_celltype = self._info["col_celltype"]
@@ -284,7 +284,7 @@ class Rna(object):
         if inplace is False:
             return adata
 
-    def get_markers_df(self, col_celltype=None, n_genes=None,
+    def get_markers_df(self, n_genes=None, col_celltype=None,
                        p_threshold=None, log2fc_threshold=None,
                        log2fc_threshold_abs=False,
                        key_celltype=None, **kwargs):

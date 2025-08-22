@@ -55,7 +55,7 @@ def analyze_perturbation_distance(adata, col_condition, key_pca="X_pca",
 def analyze_composition(adata, col_celltype, col_condition, col_sample=None,
                         formula=None, generate_sample_level=True,
                         key_modality="coda", reference_cell_type="automatic",
-                        absence_threshold=0.1, est_fdr=0.1, plot_facets=True,
+                        absence_threshold=0.1, est_fdr=0.05, plot_facets=True,
                         palette="tab20", label_rotation=90, full_hmc=False,
                         level_order=None, figsize=None, seed=0, **kwargs):
     """Analyze perturbation-related shifts in cell type composition."""
@@ -104,7 +104,7 @@ def analyze_composition(adata, col_celltype, col_condition, col_sample=None,
     sccoda_model.summary(sccoda_data, modality_key=key_modality,
                          extended=True)
     credible_effects = sccoda_model.credible_effects(
-        sccoda_data, modality_key=key_modality)
+        sccoda_data, modality_key=key_modality, est_fdr=est_fdr)
     cred_tmp = credible_effects.unstack(0).replace(
         False, "").replace(True, "*")
     print(f"\n\n{'=' * 50}   Credible Effects   {'=' * 50}\n\n",
@@ -160,7 +160,7 @@ def analyze_composition(adata, col_celltype, col_condition, col_sample=None,
 def analyze_composition_tree(adata, col_celltype, col_covariates, col_sample,
                              layer="counts", key_control=None,
                              col_celltype_hierarchy=None,
-                             dendrogram_key=None,
+                             dendrogram_key=None, est_fdr=0.05,
                              model_type="cell_level", formula=None,
                              reference_cell_type="automatric",
                              inplace=False, seed=0, figsize=None, **kwargs):
@@ -173,7 +173,7 @@ def analyze_composition_tree(adata, col_celltype, col_covariates, col_sample,
     for x in plot_kws:
         plot_kws[x] = kwargs.pop(x) if x in kwargs else plot_kws[x]
     figs = {}
-    key_added = kwargs.pop("key_added", f"tree")
+    key_added = kwargs.pop("key_added", "tree")
     # key_dend = kwargs.pop("dendrogram_key", f"dendrogram_{col_celltype}")
     adata.obs = adata.obs.assign(**{col_celltype: pd.Categorical(
         adata.obs[col_celltype])})  # to categorical
@@ -201,6 +201,9 @@ def analyze_composition_tree(adata, col_celltype, col_covariates, col_sample,
         kws_prep[x] = kwargs.pop(x)
     if "add_level_name" not in kwargs:
         kwargs["add_level_name"] = False
+    kws_nuts = {"rng_key": seed}
+    for x in [i for i in ["num_warmup", "num_samples"] if i in kwargs]:
+        kws_nuts[x] = kwargs.pop(x)
     tasccoda_model = pt.tl.Tasccoda()
     adata = tasccoda_model.load(
         adata, type=model_type, cell_type_identifier=col_celltype,
@@ -215,11 +218,11 @@ def analyze_composition_tree(adata, col_celltype, col_covariates, col_sample,
     adata = tasccoda_model.prepare(
         adata, modality_key=coda_key, tree_key=key_added,
         reference_cell_type=reference_cell_type, **kws_prep)
-    kws_nuts = {"rng_key": seed}
-    for x in [i for i in ["num_warmup", "num_samples"] if i in kwargs]:
-        kws_nuts[x] = kwargs.pop(x)
     tasccoda_model.run_nuts(adata, modality_key=coda_key, **kws_nuts)  # MCMC
-    tasccoda_model.summary(adata, modality_key=coda_key)
+    if est_fdr not in [None, False]:
+        tasccoda_model.set_fdr(adata, modality_key=coda_key,
+                               est_fdr=est_fdr)  # FDR
+    tasccoda_model.summary(adata, modality_key=coda_key, extended=True)
     try:
         figs["barplot"] = tasccoda_model.plot_effects_barplot(
             adata, modality_key=coda_key,
@@ -233,7 +236,8 @@ def analyze_composition_tree(adata, col_celltype, col_covariates, col_sample,
         for x in cov_keys:
             try:
                 figs["effects"][x] = tasccoda_model.plot_draw_effects(
-                    adata, x, modality_key=coda_key, return_fig=True)
+                    adata, x, modality_key=coda_key, tree=key_added,
+                    **plot_kws, return_fig=True)
                 tree, treestyle = figs["effects"][x]
                 with tempfile.NamedTemporaryFile(
                         suffix=".png", delete=False) as tmp:
@@ -241,9 +245,11 @@ def analyze_composition_tree(adata, col_celltype, col_covariates, col_sample,
                 tree.render(filename, w=figsize[0], units="px",
                             tree_style=treestyle)
                 img = Image.open(filename)
-                plt.imshow(img)
-                plt.axis("off")
-                plt.show()
+                fig, a_x = plt.subplots()
+                figs["effects"][f"{x}_figax"] = fig, a_x
+                fig.suptitle(x)
+                a_x.imshow(img)
+                a_x.axis("off")
                 os.remove(filename)
             except Exception as err:
                 warn(f"Tasccoda plot effects failed for {x}!\n{err}")

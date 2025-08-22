@@ -15,6 +15,7 @@ import scanpy as sc
 import math
 import numpy as np
 import pandas as pd
+import scflow
 
 
 def square_grid(n_subs):
@@ -87,11 +88,23 @@ def plot_matrix(adata, genes=None, col_celltype=None,
 
 
 def plot_violin(adata, genes=None, col_celltype=None,
-                col_wrap=None, title=None, figsize=None, **kwargs):
+                col_wrap=True, title=None,
+                fontsize=None, font="serif", figsize=None, **kwargs):
     """Plot a gene expression violin plot."""
+    if isinstance(genes, str):
+        genes = [genes]
+    genes = list(genes)
+    fontsize = {} if fontsize is None else fontsize
+    fontsize = {**{"title": "large", "subtitle": 10,
+                   "x": 8, "y": 8}, **fontsize}
+    for u in ["supx", "supy"]:
+        if u not in fontsize:
+            fontsize[u] = fontsize["x" if u == "supx" else "y"]
     if title is not None and col_wrap is None:
         col_wrap = 1  # workaround so title displays
-    if col_wrap is not None:
+    if col_wrap is True:
+        col_wrap = scflow.pl.square_grid(genes)[1]
+    if col_wrap not in [None, False]:
         kws_fig = {"figsize": figsize, "squeeze": False}
         kss = ["sharex", "sharey", "width_ratios", "height_ratios",
                "subplot_kw", "gridspec_kw"]
@@ -108,12 +121,86 @@ def plot_violin(adata, genes=None, col_celltype=None,
         kws = {**kwargs, "show": False}  # to avoid showing during iterations
         for i, g in zip(axes.flatten(), genes):  # iterate components to plot
             sc.pl.violin(adata, g, col_celltype, ax=i, **kws)
+        i.set_title(g)
+        i.title.set_fontsize(fontsize["subtitle"])
+        for q in ["x", "y"]:
+            i.tick_params(axis=q, labelsize=fontsize[q], labelfontfamily=font)
+        if len(axes.flatten()) > len(genes):
+            for ax in axes.flatten()[len(genes):]:  # turn off unused axes
+                ax.set_visible(False)
     else:
         fig = sc.pl.violin(adata, genes, col_celltype, **kwargs)
         fig = plt.gcf()
-    print(title)
     if title is not None:  # title?
         fig.suptitle(title)
+    if fontsize["supy"] is None:
+        fig.supylabel("")
+    else:
+        fig.supylabel(fig.get_supylabel(), fontsize=fontsize["supy"],
+                      fontproperties=dict(family=font))
+    if "show" not in kwargs or kwargs["show"] is True:
+        plt.show()
+    return fig
+
+
+def plot_violin_by_group(adata, gene, col_celltype=None, col_condition=None,
+                         col_wrap=True, title=None, font="serif",
+                         figsize=None, fontsize=None, **kwargs):
+    """Plot a gene expression violin plot by groups."""
+    if title is not None and col_wrap is None:
+        col_wrap = 1  # workaround so title displays
+    fontsize = {} if fontsize is None else fontsize
+    fontsize = {**{"title": "large", "subtitle": 10,
+                   "x": 8, "y": 8}, **fontsize}
+    for u in ["supx", "supy"]:
+        if u not in fontsize:
+            fontsize[u] = fontsize["x" if u == "supx" else "y"]
+    for u in ["xlabel", "ylabel"]:
+        if u not in fontsize:
+            fontsize[u] = fontsize["x" if u == "supx" else "y"]
+    # TODO: 2 conditions, rows/columns
+    conds = adata.obs[col_condition].cat.categories if isinstance(
+        adata.obs[col_condition].dtype,
+        pd.CategoricalDtype) else pd.unique(adata.obs[col_condition])
+    if col_wrap is True:
+        col_wrap = square_grid(len(conds))[1]
+    kws_fig = {"figsize": figsize, "squeeze": False}
+    kss = ["sharex", "sharey", "width_ratios", "height_ratios",
+           "subplot_kw", "gridspec_kw"]
+    for x in kss:
+        kws_fig[x] = kwargs.pop(x, False if "share" in x else None)
+    gss = ["left", "bottom", "right", "top", "wspace", "hspace"]
+    if any((k in kwargs for k in gss)):
+        kws_fig["gridspec_kw"] = {} if "gridspec_kw" not in kwargs or (
+            kwargs["gridspec_kw"] is None) else kws_fig["gridspec_kw"]
+        for x in gss:
+            kws_fig["gridspec_kw"][x] = kwargs.pop(x, None)
+    fig, axes = plt.subplots(round(len(conds) / col_wrap),
+                             col_wrap, **kws_fig)  # facet grid setup
+    kws = {**kwargs, "show": False}  # to avoid showing during iterations
+    for i, g in zip(axes.flatten(), conds):  # iterate components to plot
+        sc.pl.violin(adata[adata.obs[col_condition] == g], gene,
+                     col_celltype, ax=i, **kws)
+        i.set_title(g)
+        i.title.set_fontsize(fontsize["subtitle"])
+        if fontsize["ylabel"] is None:
+            i.set_ylabel("")
+        else:
+            i.set_ylabel(i.get_ylabel(), fontsize=fontsize["ylabel"],
+                         fontproperties=dict(family=font))
+        for q in ["x", "y"]:
+            i.tick_params(axis=q, labelsize=fontsize[q], labelfontfamily=font)
+    if len(axes.flatten()) > len(conds):
+        for ax in axes.flatten()[len(conds):]:  # turn off unused axes
+            ax.set_visible(False)
+    if title is not None:  # title?
+        fig.suptitle(title, fontsize=fontsize["title"],
+                     fontproperties=dict(family=font))
+    if fontsize["supy"] is None:
+        fig.supylabel("")
+    else:
+        fig.supylabel(fig.get_supylabel(), fontsize=fontsize["supy"],
+                      fontproperties=dict(family=font))
     if "show" not in kwargs or kwargs["show"] is True:
         plt.show()
     return fig

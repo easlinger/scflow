@@ -4,6 +4,7 @@ from .basic_plots import (
     plot_dot,
     plot_matrix,
     plot_violin,
+    plot_violin_by_group,
     plot_stacked_violin,
     plot_umap,
     square_grid
@@ -15,6 +16,7 @@ __all__ = [
     "plot_dot",
     "plot_matrix",
     "plot_violin",
+    "plot_violin_by_group",
     "plot_stacked_violin",
     "plot_umap",
     "square_grid"
