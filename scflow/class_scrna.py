@@ -268,8 +268,8 @@ class Rna(object):
             return adata
 
     def find_markers(self, n_genes=None, col_celltype=None,
-                     rankby_abs=False, key_added=None,
-                     plot=True, inplace=True):
+                     rankby_abs=False, key_added=None, reference="rest",
+                     plot=True, inplace=True, **kwargs):
         """Find marker genes for clusters."""
         if col_celltype is None:
             col_celltype = self._info["col_celltype"]
@@ -277,12 +277,14 @@ class Rna(object):
             key_added = f"rank_genes_groups_{col_celltype}"
         adata = self.rna if inplace is True else self.rna.copy()
         sc.tl.rank_genes_groups(
-            adata, col_celltype, n_genes=n_genes,
-            rankby_abs=rankby_abs, key_added=key_added, copy=False)
+            adata, col_celltype, n_genes=n_genes, reference=reference,
+            rankby_abs=rankby_abs, key_added=key_added, copy=False, **kwargs)
         if plot is True:
             sc.pl.rank_genes_groups(adata, key=key_added)
         if inplace is False:
-            return adata
+            mks = sc.get.rank_genes_groups_df(
+                adata, None, key=key_added).set_index("names", append=True)
+            return mks
 
     def get_markers_df(self, n_genes=None, col_celltype=None,
                        p_threshold=None, log2fc_threshold=None,
@@ -306,13 +308,13 @@ class Rna(object):
                 tmp = sc.get.rank_genes_groups_df(
                     self.rna, x, key=key, pval_cutoff=p_threshold,
                     log2fc_min=log2fc_threshold[0],
-                    log2fc_max=log2fc_threshold[1])
+                    log2fc_max=log2fc_threshold[1], **kwargs)
             else:  # must manually figure out cutoffs by absolute l2fc
                 raise NotImplementedError(
                     "Code done for absolute value LFC cutoff but untested")
                 tmp = sc.get.rank_genes_groups_df(
                     self.rna, x, key=key, pval_cutoff=p_threshold,
-                    log2fc_min=None, log2fc_max=None)
+                    log2fc_min=None, log2fc_max=None, **kwargs)
                 tmp = tmp[tmp["logfoldchanges"].abs() >= log2fc_threshold]
             tmp = tmp.sort_values("pvals_adj")  # ensure sorted by p-values
             if n_genes is not None:
