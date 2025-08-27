@@ -174,7 +174,7 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
         adata.layers[layer_scaled] = adata.X.copy()
 
     if use_rapids is True:
-        rsc.get.anndata_to_CPU(adata)  # move backj to cpu
+        rsc.get.anndata_to_CPU(adata)  # move back to cpu
     return adata
 
 
