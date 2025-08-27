@@ -250,7 +250,7 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
 
     # scVI or scANVI
     elif flavor.lower() in ["scvi", "scanvi"]:
-        print(f"\t***Using {layer_counts} layer...")
+        print(f"\t***Using {layer_counts} layer for {flavor}...")
         kws_setup = dict(layer=layer_counts, batch_key=col_covs if isinstance(
             col_covs, str) else col_covs[0])
         pca_scvi = "X_scVI"
@@ -258,6 +258,12 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
                "continuous_covariate_keys"]
         for k in [i for i in kss if i in kwargs]:
             kws_setup[k] = kwargs.pop(k)  # extract setup arguments
+        ckws_pr = [str(kws_setup[i]) for i in [
+            "categorical_covariate_keys", "continuous_covariate_keys"] if (
+                i in kws_setup)]  # covariate keyword arguments?
+        if len(ckws_pr) > 0:
+            print(f"\t***Using {', '.join(ckws_pr)} as covariates...")
+        print(f"\n>>>Integrating with respect to {ccs} ({flavor.upper()})...")
         if "categorical_covariate_keys" not in kws_setup:
             kws_setup["categorical_covariate_keys"] = None if (
                 isinstance(col_covs, str)) else col_covs[1]

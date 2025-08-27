@@ -31,16 +31,18 @@ def cluster(adata, col_celltype="leiden", seed=0,
     if rsc is not None:
         rsc.get.anndata_to_GPU(adata)
     if kws_pca is not False:
-        print(f"***Calculating PCA with {n_comps} components...")
+        print(f"\t***Calculating PCA with {n_comps} components...")
         (rsc if rsc else sc).pp.pca(adata, n_comps=n_comps, **kws_pca)  # PCA
         if plot is True:
             sc.pl.pca_variance_ratio(adata, log=True)
-    print("***Constructing neighborhood...")
+    n_n = str(kws_neighbors["n_neighbors"]) + " neighbors" if (
+        "n_neighbors" in kws_neighbors) else None
+    print(f"\t***Building neighborhood{' with ' + str(n_n) if n_n else ''}...")
     (rsc if rsc else sc).pp.neighbors(adata, random_state=seed,
                                       **kws_neighbors)  # neighbors
-    print(f"***Embedding UMAP with minimum distance {min_dist}...")
+    print(f"\t***Embedding UMAP with minimum distance {min_dist}...")
     (rsc if rsc else sc).tl.umap(adata, min_dist=min_dist, **kws_umap)  # UMAP
-    print(f"***Performing Leiden clustering with resolution {resolution}...")
+    print(f"\t***Performing Leiden clustering with resolution {resolution}...")
     (rsc if rsc else sc).tl.leiden(
         adata, key_added=col_celltype,
         resolution=resolution, random_state=seed, **kws_cluster)  # cluster

@@ -321,7 +321,8 @@ abc_atlas_access >& <dir_scratch>/junk.txt
             level = cell["cluster_annotation_term_set_label"]
             if alias not in alias_to_truth:
                 alias_to_truth[alias] = dict()
-            alias_to_truth[alias][level] = cell["cluster_annotation_term_label"]
+            alias_to_truth[alias][level] = cell[
+                "cluster_annotation_term_label"]
         cell_metadata = abc_cache.get_metadata_dataframe(
             directory=map_my_cells_source, file_name="cell_metadata")
         if map_my_cells_region_keys is not None:  # subset by region keys

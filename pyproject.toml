@@ -37,6 +37,7 @@ dependencies = [
     "gseapy",
     "ott-jax",
     "pyqt6",
+    "decoupler[full]",
 
     # Plotting
     "matplotlib>=3.9.0",

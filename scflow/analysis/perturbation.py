@@ -187,7 +187,7 @@ def analyze_composition_tree(adata, col_celltype, col_covariates, col_sample,
     if key_control is None:
         key_control = {}
         for i in col_covariates:
-            if pd.api.types.is_categorical_dtype(adata.obs[i]):
+            if isinstance(adata.obs[i], pd.CategoricalDtype):
                 key_control[i] = adata.obs[i].cat.categories[0]
     if isinstance(key_control, list):
         key_control = dict(zip(col_covariates, key_control))

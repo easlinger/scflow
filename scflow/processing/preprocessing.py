@@ -12,7 +12,7 @@ import warnings
 import matplotlib.pyplot as plt
 import seaborn as sns
 import scanpy as sc
-import scipy.sparse as sp
+# import scipy.sparse as sp
 from warnings import warn
 try:
     import cupyx as cpx
