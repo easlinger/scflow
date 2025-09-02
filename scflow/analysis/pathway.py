@@ -8,6 +8,7 @@ Functions for running pathway/enrichment analysis.
 
 # import pdb
 from warnings import warn
+import functools
 import matplotlib.pyplot as plt
 import scanpy as sc
 import decoupler as dc
@@ -17,22 +18,31 @@ import numpy as np
 import scflow
 
 
-def run_decoupler(adata, col_celltype, col_condition, col_sample=None,
-                  resource="MSigDB", species="human",
-                  query="collection == 'reactome_pathways'",
+def run_decoupler(adata, col_celltype, col_condition=None, col_sample=None,
+                  resource="MSigDB", species="human", query=None,
+                  # query="collection == 'reactome_pathways'",
                   use_hvg=True, inplace=False):
     """Run dc on DEGs."""
     if inplace is False:
         adata = adata.copy()
-    rsrc = dc.op.resource(resource, organism=species.lower())
+    rsrc = dc.op.progeny(organism=species.lower()) if (
+        resource == "progeny") else dc.op.hallmark(
+            organism=species.lower()) if (
+                resource == "hallmark") else dc.op.resource(
+                    resource, organism=species.lower())  # retrieve resource
     if query is not None:
         rsrc = rsrc.query(query)
-    rsrc = rsrc[~rsrc.duplicated(("geneset", "genesymbol") if (
-        "geneset" in rsrc) else ("genesymbol"))]  # drop duplicates
-    gs_size = rsrc.groupby("geneset").size()
-    gsea_genesets = gs_size.index[(gs_size > 15) & (gs_size < 500)]
-    adata.obs.loc[:, "group_dc"] = adata.obs[col_condition].astype(
-        "string") + "_" + adata.obs[col_celltype]
+    if resource == "MSigDB":
+        rsrc = rsrc[~rsrc.duplicated(("geneset", "genesymbol") if (
+            "geneset" in rsrc) else ("genesymbol"))]  # drop duplicates
+        gs_size = rsrc.groupby("geneset").size()
+        gsea_genesets = gs_size.index[(gs_size > 15) & (gs_size < 500)]
+        rsrc = rsrc[rsrc["geneset"].isin(gsea_genesets)]
+    if col_condition is not None:
+        adata.obs.loc[:, "group_dc"] = adata.obs[col_condition].astype(
+            "string") + "_" + adata.obs[col_celltype]
+    else:
+        adata.obs.loc[:, "group_dc"] = adata.obs[col_celltype].copy()
     sc.tl.rank_genes_groups(adata, "group_dc",
                             method="t-test", key_added="t-test")
     t_stats_all = sc.get.rank_genes_groups_df(
@@ -41,20 +51,19 @@ def run_decoupler(adata, col_celltype, col_condition, col_sample=None,
     if use_hvg not in [None, False]:
         if use_hvg is not True:
             sc.pp.highly_variable_genes(
-                adata, top_n_genes=use_hvg, batch_key=col_sample)
+                adata, n_top_genes=use_hvg, batch_key=col_sample)
         t_stats_all = t_stats_all.loc[adata.var["highly_variable"]]
     gsea_results = {}
     for g in adata.obs["group_dc"].unique():
         t_stats = t_stats_all[t_stats_all.group == g].sort_values(
             "scores", key=np.abs, ascending=False)[["scores"]].rename_axis([
                 "Condition"], axis=1)
-        scores, norm, pvals = dc.run_gsea(
-            t_stats.T, rsrc[rsrc["geneset"].isin(gsea_genesets)],
-            source="geneset", target="genesymbol")
-        gsea_results[g] = pd.concat({"score": scores.T, "norm": norm.T,
-                                     "pval": pvals.T}, axis=1).droplevel(
-                                         level=1, axis=1).sort_values("pval")
-    gsea_results = pd.concat(gsea_results, names=[col_celltype])
+        # scores, norm, pvals = dc.mt.gsea(t_stats.T, rsrc)
+        gsea_results[g] = dc.mt.gsea(t_stats.T, rsrc)
+        # gsea_results[g] = pd.concat({"score": scores.T, "norm": norm.T,
+        #                              "pval": pvals.T}, axis=1).droplevel(
+        #                                  level=1, axis=1).sort_values("pval")
+    # gsea_results = pd.concat(gsea_results, names=[col_celltype])
     return gsea_results
 
 
@@ -83,6 +92,9 @@ def run_decoupler_ulm(adata, col_celltype, col_condition=None,
                 *scflow.pl.square_grid(len(out)), **kws_fig,
                 gridspec_kw=gridspec_kws)
             for i, g in enumerate(out):
+                sgv = list(out[g][0].obs.columns.difference(functools.reduce(
+                    lambda u, v: u + v, [out[g][2][q] for q in out[g][2]])))
+                out[g][0].obs = out[g][0].obs[sgv]
                 sc.pl.matrixplot(
                     adata=out[g][0], var_names=out[g][2],
                     groupby=col_celltype,
@@ -99,7 +111,20 @@ def run_decoupler_ulm(adata, col_celltype, col_condition=None,
             if title is not None:  # title?
                 fig.suptitle(title)
             fig.show()
-            return out, fig
+            try:
+                for x in out:
+                    pthwys = functools.reduce(lambda i, j: i + j, [
+                        out[x][2][i] for i in out[x][2]])
+                    if len(pthwys) == 0:
+                        print(f"\n\nNo significant contrasts for {x}")
+                        continue
+                    scflow.pl.plot_violin(
+                        out[x][0], genes=pthwys, col_celltype=col_celltype,
+                        figsize=(15, 15), hspace=0.5 * len(pthwys) / 10,
+                        wspace=1, title=x, rotation=45)
+            except Exception as err:
+                print(err)
+        return out, fig
     rsrc = dc.op.progeny(organism=species.lower()) if (
         resource == "progeny") else dc.op.hallmark(
             organism=species.lower()) if (
@@ -116,6 +141,9 @@ def run_decoupler_ulm(adata, col_celltype, col_condition=None,
     ctypes_dict = dcdf.groupby("group").head(top_n).groupby("group")[
         "name"].apply(lambda x: list(x)).to_dict()
     if plot is True:
+        sgv = list(score.obs.columns.difference(functools.reduce(
+            lambda u, v: u + v, [ctypes_dict[q] for q in ctypes_dict])))
+        score.obs = score.obs[sgv]
         fig = sc.pl.matrixplot(
             adata=score, var_names=ctypes_dict, groupby=col_celltype,
             dendrogram=True, standard_scale="var",
@@ -128,7 +156,7 @@ def run_decoupler_ulm(adata, col_celltype, col_condition=None,
 
 def run_decoupler_aucell(adata, col_covariates=None, resource="progeny",
                          query=None, species="human", wspace=0.5,
-                         col_wrap=True, inplace=False, **kws_fig):
+                         col_wrap=True, layer=None, inplace=False, **kws_fig):
     """Run AUCell."""
     if isinstance(col_covariates, str):
         col_covariates = [col_covariates]
@@ -141,10 +169,9 @@ def run_decoupler_aucell(adata, col_covariates=None, resource="progeny",
                     resource, organism=species.lower())  # retrieve resource
     if query is not None:
         rsrc = rsrc.query(query)
-    dc.run_aucell(
-        adata, rsrc, source="geneset", target="genesymbol", use_raw=False)
-    pathways = list(adata.obsm["aucell_estimate"].keys())
-    adata.obs[pathways] = adata.obsm["aucell_estimate"]
+    dc.mt.aucell(adata, rsrc, layer=layer, verbose=True)  # run AUCell
+    pathways = list(adata.obsm["score_aucell"].columns)
+    adata.obs[pathways] = adata.obsm["score_aucell"]
     if col_covariates is not None:
         if col_wrap is True:
             col_wrap = scflow.pl.square_grid(
@@ -152,7 +179,6 @@ def run_decoupler_aucell(adata, col_covariates=None, resource="progeny",
         sc.pl.umap(adata, color=col_covariates + pathways, frameon=False,
                    ncols=col_wrap, wspace=wspace)
     return adata
-
 
 
 def run_enrichr(df_degs, col_grouping=None, gene_sets=None,

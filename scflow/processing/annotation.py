@@ -104,7 +104,7 @@ def run_celltypist(adata, model, layer="log1p", col_celltype=None,
                 "majority_voting"] == "Heterogeneous" else x[
                     predictions.predicted_labels.loc[x.name][
                         "majority_voting"]], axis=1).to_frame(
-                            mv_pcol)) # MV probability
+                            mv_pcol))  # MV probability
     col_overlap = adata.obs.columns.intersection(obs_add.columns)
     if len(col_overlap) > 0:  # drop any pre-existing/overlapping columns
         warn(f"{col_overlap} already in `adata.obs`. Overwriting.")

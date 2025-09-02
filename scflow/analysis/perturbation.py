@@ -9,6 +9,7 @@ Functions for analyzing perturbation effects.
 import matplotlib.pyplot as plt
 import seaborn as sns
 # import jax
+import warnings
 from warnings import warn
 from PIL import Image
 import tempfile
@@ -82,6 +83,7 @@ def analyze_composition(adata, col_celltype, col_condition, col_sample=None,
         reference_cell_type=reference_cell_type,
         automatic_reference_absence_threshold=absence_threshold)
     sccoda_model = pt.tl.Sccoda()
+    warnings.filterwarnings("ignore", message=".*vert.*will be deprecated.*")
     for c in col_condition:
         figs["box"] = sccoda_model.plot_boxplots(
             sccoda_data, modality_key=key_modality, feature_name=c,

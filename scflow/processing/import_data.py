@@ -336,6 +336,9 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
             rsc.get.anndata_to_CPU(adata)  # move back to cpu
         if adata_original is not None:
             adata_original.obsm[new_pca_key] = adata.obsm[new_pca_key].copy()
+            if "annotation_scanvi" in adata.obs:
+                adata_original.obs["annotation_scanvi"] = adata.obs[
+                    "annotation_scanvi"].copy()
             adata = adata_original
 
     # Scanorama
