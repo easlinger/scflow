@@ -225,13 +225,17 @@ def perform_qc(adata, qc_vars=None, plot_qc=True, col_sample=None,
 
 def perform_qc_multi(adatas, plot_qc=False, col_gene="gene",
                      col_sample="sample", col_batch="batch",
-                     percentiles=None,
-                     plot=True, legend="brief", figsize=None):
+                     percentiles=None, plot=True,
+                     legend="brief", figsize=None):
     """Get (and optionally plot) QC values for multiple samples."""
     percentiles = list(percentiles) if percentiles is not None else [
         0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95]
     mets = ["pct_counts_mt", "total_counts", "n_genes_by_counts"]
     qcs, n_cells_by_counts = {}, {}
+    if isinstance(adatas, dict):  # if provided in single object
+        samps = adatas.obs[col_sample].unique()
+        adatas = dict(zip(samps, [adatas[adatas.obs[
+            col_sample] == i] for i in samps]))  # make into dictionary
     for x in adatas:
         tmp = perform_qc(adatas[x].copy(), plot_qc=plot_qc)
         qcs[x] = tmp.obs[mets].reset_index(drop=True)

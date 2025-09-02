@@ -25,7 +25,7 @@ class Rna(object):
 
     def __init__(self, file_path=None, col_sample=None, col_batch=None,
                  kws_read=None, col_celltype=None, kws_integrate=None,
-                 assay=None, **kwargs):
+                 assay=None, inplace=False, **kwargs):
         """
         Initialize class instance.
 
@@ -77,7 +77,7 @@ class Rna(object):
             adata = scflow.pp.integrate(file_path, **kws_integrate)  # Harmony
             integrated = True
         elif isinstance(file_path, (AnnData, MuData)):  # just load Ann/MuData
-            adata = file_path.copy()
+            adata = file_path.copy() if inplace is False else file_path
             if "var_names" in kws_read:
                 if assay is not None:
                     if adata[assay].var.index.names[0] != kws_read[
