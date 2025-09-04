@@ -232,7 +232,7 @@ def perform_qc_multi(adatas, plot_qc=False, col_gene="gene",
         0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95]
     mets = ["pct_counts_mt", "total_counts", "n_genes_by_counts"]
     qcs, n_cells_by_counts = {}, {}
-    if isinstance(adatas, dict):  # if provided in single object
+    if not isinstance(adatas, dict):  # if provided in single object
         samps = adatas.obs[col_sample].unique()
         adatas = dict(zip(samps, [adatas[adatas.obs[
             col_sample] == i] for i in samps]))  # make into dictionary
