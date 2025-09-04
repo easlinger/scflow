@@ -41,7 +41,8 @@ def cluster(adata, col_celltype="leiden", seed=0,
     (rsc if rsc else sc).pp.neighbors(adata, random_state=seed,
                                       **kws_neighbors)  # neighbors
     print(f"\t***Embedding UMAP with minimum distance {min_dist}...")
-    (rsc if rsc else sc).tl.umap(adata, min_dist=min_dist, **kws_umap)  # UMAP
+    (rsc if rsc else sc).tl.umap(adata, min_dist=min_dist,
+                                 random_state=seed, **kws_umap)  # UMAP
     print(f"\t***Performing Leiden clustering with resolution {resolution}...")
     (rsc if rsc else sc).tl.leiden(
         adata, key_added=col_celltype,
