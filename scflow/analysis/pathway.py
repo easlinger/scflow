@@ -70,6 +70,7 @@ def run_decoupler(adata, col_celltype, col_condition=None, col_sample=None,
 def run_decoupler_ulm(adata, col_celltype, col_condition=None,
                       resource="progeny", query=None, species="human",
                       top_n=3, plot=True, title=None,
+                      title_position=0.6, brackets=True,
                       title_cb="Z-Scaled Scores", inplace=False, **kws_fig):
     """Run ULM."""
     fig = None
@@ -95,14 +96,18 @@ def run_decoupler_ulm(adata, col_celltype, col_condition=None,
                 sgv = list(out[g][0].obs.columns.difference(functools.reduce(
                     lambda u, v: u + v, [out[g][2][q] for q in out[g][2]])))
                 out[g][0].obs = out[g][0].obs[sgv]
+                # dndr = len(out[g][0].obs[col_celltype].unique()) > 2
+                gtmp = out[g][2] if brackets is True else functools.reduce(
+                    lambda i, j: i + j, [out[g][2][k] for k in out[g][2]])
+                dndr = False
                 sc.pl.matrixplot(
-                    adata=out[g][0], var_names=out[g][2],
+                    adata=out[g][0], var_names=gtmp,
                     groupby=col_celltype,
-                    dendrogram=len(out[g][0].obs[col_celltype].unique()) > 2,
+                    dendrogram=dndr,
                     standard_scale="var", show=False, use_raw=False,
                     vmin=0, vmax=1, colorbar_title=title_cb,
-                    cmap=cmap, ax=axes.flatten()[i])
-                axes.flatten()[i].set_title(g)
+                    cmap=cmap, ax=axes.flatten()[i], **kws_fig)
+                axes.flatten()[i].set_title(g, y=title_position)
                 if g != list(out.keys())[-1]:
                     axes.flatten()[i].legend().set_visible(False)
             if len(axes.flatten()) > len(out):
@@ -155,6 +160,7 @@ def run_decoupler_ulm(adata, col_celltype, col_condition=None,
 
 
 def run_decoupler_aucell(adata, col_covariates=None, resource="progeny",
+
                          query=None, species="human", wspace=0.5,
                          col_wrap=True, layer=None, inplace=False, **kws_fig):
     """Run AUCell."""
@@ -214,6 +220,7 @@ def run_enrichr(df_degs, col_grouping=None, gene_sets=None,
             gene_sets[x] = list(set(gene_sets[x]).intersection(set(names)))
     # ixs = [i for i in list([col_grouping] if isinstance(
     #     col_grouping, str) else col_grouping) if i in df_degs.index.names]
+    print(gene_sets)
     if col_grouping is None:
         col_grouping = "dummy_col"
         df_degs = df_degs.assign(
