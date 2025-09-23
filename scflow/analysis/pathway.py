@@ -69,7 +69,7 @@ def run_decoupler(adata, col_celltype, col_condition=None, col_sample=None,
 
 def run_decoupler_ulm(adata, col_celltype, col_condition=None,
                       resource="progeny", query=None, species="human",
-                      top_n=3, plot=True, title=None,
+                      top_n=3, plot=True, title=None, p_threshold=0.05,
                       title_position=0.6, brackets=True,
                       title_cb="Z-Scaled Scores", inplace=False, **kws_fig):
     """Run ULM."""
@@ -100,16 +100,18 @@ def run_decoupler_ulm(adata, col_celltype, col_condition=None,
                 gtmp = out[g][2] if brackets is True else functools.reduce(
                     lambda i, j: i + j, [out[g][2][k] for k in out[g][2]])
                 dndr = False
-                sc.pl.matrixplot(
+                m_p = sc.pl.matrixplot(
                     adata=out[g][0], var_names=gtmp,
-                    groupby=col_celltype,
-                    dendrogram=dndr,
+                    groupby=col_celltype, dendrogram=dndr,
+                    var_group_rotation=45,
                     standard_scale="var", show=False, use_raw=False,
                     vmin=0, vmax=1, colorbar_title=title_cb,
-                    cmap=cmap, ax=axes.flatten()[i], **kws_fig)
+                    cmap=cmap, ax=axes.flatten()[i])
                 axes.flatten()[i].set_title(g, y=title_position)
                 if g != list(out.keys())[-1]:
                     axes.flatten()[i].legend().set_visible(False)
+                if i != len(out) - 1 and "color_legend_ax" in m_p:
+                    m_p["color_legend_ax"].remove()
             if len(axes.flatten()) > len(out):
                 for a in axes.flatten()[len(out):]:
                     a.set_visible(False)
@@ -143,6 +145,8 @@ def run_decoupler_ulm(adata, col_celltype, col_condition=None,
         adata=score, groupby=col_celltype,
         reference="rest", method="t-test_overestim_var")
     dcdf = dcdf[dcdf["stat"] > 0]
+    if p_threshold is not None:
+        dcdf = dcdf[dcdf["padj"] < p_threshold]
     ctypes_dict = dcdf.groupby("group").head(top_n).groupby("group")[
         "name"].apply(lambda x: list(x)).to_dict()
     if plot is True:
