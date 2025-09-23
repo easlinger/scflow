@@ -89,17 +89,29 @@ def run_decoupler_ulm(adata, col_celltype, col_condition=None,
             for x in [i for i in gks if i in kws_fig]:
                 gridspec_kws[x] = kws_fig.pop(x)
             gridspec_kws = {**dict(hspace=1.5, top=0.95), **gridspec_kws}
+            non_empty_out = dict(zip(out, [[v for v in out[g][2] if len(
+                out[g][2][v]) > 0] for g in out]))
+            non_empty_out = [i for i in non_empty_out if len(
+                non_empty_out[i]) > 0]  # filter if no significant pathways
             fig, axes = plt.subplots(
-                *scflow.pl.square_grid(len(out)), **kws_fig,
+                *scflow.pl.square_grid(len(non_empty_out)), **kws_fig,
                 gridspec_kw=gridspec_kws)
             for i, g in enumerate(out):
                 sgv = list(out[g][0].obs.columns.difference(functools.reduce(
                     lambda u, v: u + v, [out[g][2][q] for q in out[g][2]])))
                 out[g][0].obs = out[g][0].obs[sgv]
                 # dndr = len(out[g][0].obs[col_celltype].unique()) > 2
-                gtmp = out[g][2] if brackets is True else functools.reduce(
-                    lambda i, j: i + j, [out[g][2][k] for k in out[g][2]])
                 dndr = False
+                non_empty = [v for v in out[g][2] if len(out[g][2][v]) > 0]
+                gtmp = dict(zip(non_empty, [
+                    out[g][2][v] for v in non_empty])) if (
+                        brackets is True) else functools.reduce(
+                            lambda i, j: i + j, [out[g][2][k]
+                                                 for k in non_empty])
+                if len(gtmp) < 1:
+                    warn(f"No significant pathways for {g}")
+                    continue
+                print(gtmp)
                 m_p = sc.pl.matrixplot(
                     adata=out[g][0], var_names=gtmp,
                     groupby=col_celltype, dendrogram=dndr,
@@ -112,8 +124,8 @@ def run_decoupler_ulm(adata, col_celltype, col_condition=None,
                     axes.flatten()[i].legend().set_visible(False)
                 if i != len(out) - 1 and "color_legend_ax" in m_p:
                     m_p["color_legend_ax"].remove()
-            if len(axes.flatten()) > len(out):
-                for a in axes.flatten()[len(out):]:
+            if len(axes.flatten()) > len(non_empty_out):
+                for a in axes.flatten()[len(non_empty_out):]:
                     a.set_visible(False)
             if title is not None:  # title?
                 fig.suptitle(title)
@@ -153,13 +165,16 @@ def run_decoupler_ulm(adata, col_celltype, col_condition=None,
         sgv = list(score.obs.columns.difference(functools.reduce(
             lambda u, v: u + v, [ctypes_dict[q] for q in ctypes_dict])))
         score.obs = score.obs[sgv]
-        fig = sc.pl.matrixplot(
-            adata=score, var_names=ctypes_dict, groupby=col_celltype,
-            dendrogram=True, standard_scale="var",
-            colorbar_title=title_cb, cmap="RdBu_r")
-        if title is not None:  # title?
-            fig.fig_title = title
-        fig.show()
+        if len(ctypes_dict) < 1:
+            warn("No significant pathways found.")
+        else:
+            fig = sc.pl.matrixplot(
+                adata=score, var_names=ctypes_dict, groupby=col_celltype,
+                dendrogram=True, standard_scale="var",
+                colorbar_title=title_cb, cmap="RdBu_r")
+            if title is not None:  # title?
+                fig.fig_title = title
+            fig.show()
     return score, dcdf, ctypes_dict, fig
 
 

@@ -46,6 +46,8 @@ def square_grid(n_subs):
         rows, cols = 2, math.ceil(n_subs / 2)
     if cols == 1 and rows > 2:
         cols, rows = 2, math.ceil(n_subs / 2)
+    if rows == 2 and cols == 2 and n_subs == 3:
+        rows, cols = 1, 3
     return rows, cols
 
 
