@@ -192,6 +192,8 @@ def run_enrichr(df_degs, col_grouping=None, gene_sets=None,
                              "right", "wspace", "hspace"]
     for x in [i for i in gks if i in kwargs]:
         gridspec_kws[x] = kwargs.pop(x)
+    if "log_fc" not in df_degs and "logfoldchanges" in df_degs:
+        df_degs.loc[:, "log_fc"] = df_degs["logfoldchanges"]
     gridspec_kws = {**dict(wspace=1.5, top=0.95), **gridspec_kws}
     names = gp.get_library_name()
     fig, axes = None, None

@@ -78,11 +78,6 @@ def analyze_composition(adata, col_celltype, col_condition, col_sample=None,
         adata, type="cell_level", generate_sample_level=generate_sample_level,
         cell_type_identifier=col_celltype, sample_identifier=col_sample,
         covariate_obs=col_condition)
-    sccoda_data = sccoda_model.prepare(
-        sccoda_data, modality_key=key_modality, formula=formula,
-        reference_cell_type=reference_cell_type,
-        automatic_reference_absence_threshold=absence_threshold)
-    sccoda_model = pt.tl.Sccoda()
     warnings.filterwarnings("ignore", message=".*vert.*will be deprecated.*")
     for c in col_condition:
         figs["box"] = sccoda_model.plot_boxplots(
@@ -93,6 +88,11 @@ def analyze_composition(adata, col_celltype, col_condition, col_sample=None,
             for a in figs["box"].fig.axes:
                 a.tick_params(axis="x", labelrotation=label_rotation)
         plt.show()
+    sccoda_data = sccoda_model.prepare(
+        sccoda_data, modality_key=key_modality, formula=formula,
+        reference_cell_type=reference_cell_type,
+        automatic_reference_absence_threshold=absence_threshold)
+    # sccoda_model = pt.tl.Sccoda()
     # kws_nuts = {
     #     "rng_key": jax.random.key(seed) if full_hmc is True else seed}
     kws_nuts = {"rng_key": seed}

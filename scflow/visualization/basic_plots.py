@@ -18,6 +18,19 @@ import pandas as pd
 import scflow
 
 
+def get_kws_gridspec(kwargs):
+    """Get gridspec keywords from kwargs."""
+    gss = ["left", "bottom", "right", "top", "wspace", "hspace"]
+    if any((k in kwargs for k in gss)):
+        kws_gs = {}
+        for k in [i for i in gss if i in kwargs]:
+            kws_gs[k] = kwargs.pop(k)
+    else:
+        kws_gs = None if "gridspec_kw" not in kwargs else kwargs.pop(
+            "gridspec_kw")
+    return kws_gs
+
+
 def square_grid(n_subs):
     """Create a square grid for plotting."""
     n_subs = len(n_subs) if isinstance(n_subs, (
@@ -50,12 +63,21 @@ def plot_heat(adata, genes=None, col_celltype=None, title=None, **kwargs):
             "standard_scale"] == "obs" else "Gene") if (
                 "standard_scale" in kwargs) else None
         title += f" (Scaled by {scale})" if scale else f" by {col_celltype}"
+    if "standard_scale" in kwargs and kwargs["standard_scale"] == "group":
+        kwargs["standard_scale"] = "obs"  # convert if used matrixplot style
+    fontsize = kwargs.pop("fontsize", None)
     show = kwargs["show"] if "show" in kwargs else True
-    if title is not None:
-        kwargs["show"] = False  # so can return axes
+    kws_gs = get_kws_gridspec(kwargs)
+    if title is True or isinstance(
+            title, str) or kws_gs is not None:  # return figure if need
+        kwargs["show"] = False
     fig = sc.pl.heatmap(adata, genes, col_celltype, **kwargs)
+    if fig is not None:
+        fig = {"scanpy": fig, "fig": fig["heatmap_ax"].get_figure()}
     if title is not None:
-        fig["heatmap_ax"].set_title(title)
+        fig["fig"].suptitle(title, fontsize=fontsize)
+    if kws_gs is not None:
+        fig["fig"].subplots_adjust(**kws_gs)
     if show is True:
         plt.show()
     return fig
@@ -77,13 +99,25 @@ def plot_dot(adata, genes=None, col_celltype=None, return_fig=True,
 def plot_matrix(adata, genes=None, col_celltype=None,
                 return_fig=True, title=None, **kwargs):
     """Plot a gene expression matrix plot."""
+    kws_gs = get_kws_gridspec(kwargs)
+    if "standard_scale" in kwargs and kwargs["standard_scale"] == "obs":
+        kwargs["standard_scale"] = "group"  # convert if used heatmap style
+    fontsize = kwargs.pop("fontsize", None)
+    show_later = fontsize is not None or kws_gs is not None and (
+        "show" not in kwargs or kwargs["show"] is True)
+    kwargs["show"] = False if show_later is True else kwargs.get("show", True)
     fig = sc.pl.matrixplot(adata, genes, col_celltype,
                            return_fig=return_fig, **kwargs)
-    if title is not None:  # title?
-        fig.fig_title = title
-    if ("show" not in kwargs or kwargs["show"] is True) and (
-            return_fig is True):
-        fig.show()
+    if fig is not None:
+        fig = {"returned": fig}
+        fig["scanpy"] = fig["returned"].get_axes(),
+        fig["fig"] = fig["returned"].get_axes()["mainplot_ax"].get_figure()
+    if title is not None:
+        fig["fig"].suptitle(title, fontsize=fontsize)
+    if kws_gs is not None:
+        fig["fig"].subplots_adjust(**kws_gs)
+    # if show_later is True:
+    #     fig["returned"].show()
     return fig
 
 
@@ -219,9 +253,10 @@ def plot_stacked_violin(adata, genes=None, col_celltype=None,
     return fig
 
 
-def plot_umap(adata, color=None, return_fig=True, title=None, **kwargs):
+def plot_umap(adata, color=None, return_fig=True, title=None,
+              col_wrap=4, **kwargs):
     """Plot a UMAP."""
-    fig = sc.pl.umap(adata, color=color,
+    fig = sc.pl.umap(adata, color=color, ncols=col_wrap,
                      return_fig=return_fig, **kwargs)
     if title is not None:  # title?
         fig.suptitle(title)
