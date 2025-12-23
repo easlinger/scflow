@@ -374,9 +374,12 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
             sc.pl.pca(adata, color=col_covs)
         except Exception as err:
             print(f"\n\nUMAP plotting failed: {err}")
-        _ = scflow.pp.perform_qc(
-            adata, plot_qc=verbose, inplace=True,
-            use_rapids=use_rapids, recalculate_metrics=False)
+        try:
+            _ = scflow.pp.perform_qc(
+                adata, plot_qc=verbose, inplace=True,
+                use_rapids=use_rapids, recalculate_metrics=False)
+        except Exception as err:
+            print(f"\n\nQC plotting failed: {err}\n\n")
     return adata
 
 

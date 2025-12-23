@@ -120,7 +120,9 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
         if min_max_cells[1] is not None:
             pkg.pp.filter_genes(adata, max_cells=min_max_cells[1])
     if max_mt is not None:  # filter by maximum mitochondrial count
-        print("\t***Filtering cells by mitochondrial gene content...")
+        dmt = sum(adata.obs["pct_counts_mt"] > max_mt)
+        dmt = f"{dmt} / {adata.obs.shape[0]} total cells"
+        print(f"\t***Filtering by mitochondrial gene content ({dmt})...")
         adata = adata[adata.obs["pct_counts_mt"] <= max_mt]
 
     # Doublet Detection
@@ -216,10 +218,14 @@ def perform_qc(adata, qc_vars=None, plot_qc=True, col_sample=None,
                 adata, ["n_genes_by_counts", "total_counts", "pct_counts_mt"],
                 jitter=0.4, multi_panel=True,
                 groupby=col_sample, use_raw=False)
-        adata.var["n_cells_by_counts"].hist()
-        print(adata.var["n_cells_by_counts"].describe())
-        plt.title("# of Cells in which Each Gene Has Non-Zero Expression "
-                  "(n_cells_by_counts)")
+        if "n_cells_by_counts" in adata.var:
+            adata.var["n_cells_by_counts"].hist()
+            print(adata.var["n_cells_by_counts"].describe())
+            plt.title("# of Cells in which Each Gene Has Non-Zero Expression "
+                      "(n_cells_by_counts)")
+        else:
+            print("Cannot plot `n_cells_by_counts` because it is not "
+                  "in `adata.var`.")
         sc.pl.scatter(adata, "total_counts", "n_genes_by_counts",
                       color="pct_counts_mt")  # QC scatter plot
     if rsc is not None and to_gpu is True and use_rapids is True:
