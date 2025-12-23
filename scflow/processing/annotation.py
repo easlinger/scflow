@@ -43,7 +43,7 @@ def annotate_by_marker_overlap(adata, marker_gene_dict, col_celltype="leiden",
         col_celltype_new = "annotation_by_marker_overlap"
     new = f"marker_gene_overlap_{key.split('rank_genes_groups_')[1]}"
     marker_matches = sc.tl.marker_gene_overlap(
-        adata, marker_gene_dict, key=key,
+        adata, marker_gene_dict, key=key, method=method,
         key_added=new, **kwargs)  # detect marker overlap
     new_lbls = marker_matches.apply(
         lambda x: sep.join(np.array(marker_matches.index.values)[
