@@ -62,7 +62,8 @@ def run_decoupler(adata, col_celltype, col_condition=None, col_sample=None,
         gsea_results[g] = dc.mt.gsea(t_stats.T, rsrc)
         # gsea_results[g] = pd.concat({"score": scores.T, "norm": norm.T,
         #                              "pval": pvals.T}, axis=1).droplevel(
-        #                                  level=1, axis=1).sort_values("pval")
+        #                                  level=1, axis=1).sort_values(
+        #                                      "pval")
     # gsea_results = pd.concat(gsea_results, names=[col_celltype])
     return gsea_results
 
@@ -96,7 +97,7 @@ def run_decoupler_ulm(adata, col_celltype, col_condition=None,
             fig, axes = plt.subplots(
                 *scflow.pl.square_grid(len(non_empty_out)), **kws_fig,
                 gridspec_kw=gridspec_kws)
-            for i, g in enumerate(out):
+            for i, g in enumerate(non_empty_out):
                 sgv = list(out[g][0].obs.columns.difference(functools.reduce(
                     lambda u, v: u + v, [out[g][2][q] for q in out[g][2]])))
                 out[g][0].obs = out[g][0].obs[sgv]

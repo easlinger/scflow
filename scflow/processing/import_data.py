@@ -65,7 +65,7 @@ def read_scrna(file_path, **kws_read):
     return rna
 
 
-def integrate(adata, kws_pp=None, kws_cluster=None,
+def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
               col_sample="sample", col_batch=None, axis="obs",
               join="outer", merge=None, uns_merge=None, n_top_genes=None,
               layer_log1p=layer_log1p, layer_counts=layer_counts,
@@ -248,7 +248,7 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
 
     # Harmony
     if flavor.lower() == "harmony":
-        print(f"***Using {layer_log1p} layer for Harmony...")
+        print(f"\t***Using {layer_log1p} layer for Harmony...")
         adata.X = adata.layers[layer_log1p].copy()
         fxi = rsc.pp.harmony_integrate if (
             use_rapids is True) else sc.external.pp.harmony_integrate  # fx?
@@ -260,6 +260,7 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
         if adata_original:
             adata_original.obsm["X_pca"] = adata.obsm[new_pca_key].copy()
             adata = adata_original
+            new_pca_key = None
 
     # scVI or scANVI
     elif flavor.lower() in ["scvi", "scanvi"]:
@@ -361,9 +362,11 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
     # Final Cleanup & Plot (Optional)
     if new_pca_key is not None:  # new PCA -> X_pca default key
         adata.obsm["X_pca_old"] = adata.obsm["X_pca"].copy()
+        print(adata.obsm)
         adata.obsm["X_pca"] = adata.obsm[new_pca_key].copy()
     adata.X = adata.layers[layer_log1p].copy()  # set back to log1p
-    if "n_genes_by_counts" not in adata.var:  # re-perform QC if needed
+    if "n_genes_by_counts" not in adata.var and (
+            redo_qc_allowed is True):  # re-perform QC if needed
         adata = scflow.pp.perform_qc(
             adata, plot_qc=verbose, inplace=True, use_rapids=use_rapids)
     if verbose is True:
@@ -371,6 +374,9 @@ def integrate(adata, kws_pp=None, kws_cluster=None,
             sc.pl.pca(adata, color=col_covs)
         except Exception as err:
             print(f"\n\nUMAP plotting failed: {err}")
+        _ = scflow.pp.perform_qc(
+            adata, plot_qc=verbose, inplace=True,
+            use_rapids=use_rapids, recalculate_metrics=False)
     return adata
 
 

@@ -223,8 +223,9 @@ class Rna(object):
         g_original = [genes] if isinstance(genes, str) else genes
         genes = None if genes is None else list(set(
             genes).intersection(adata.var_names))  # valid gene names
-        if g_original is not None and len(g_original) > genes:
-            warn(f"Genes not found: {set(genes).difference(g_original)}")
+        if g_original is not None and len(g_original) > len(genes):
+            warn(f"Genes not found: {set(genes).difference(set(g_original))}")
+        print(g_original)
         expr = (adata if genes is None else adata[:, genes])
         expr = expr.X if layer is None else expr.layers[layer].copy()
         expr = expr.toarray() if issparse(expr) else expr
@@ -310,12 +311,12 @@ class Rna(object):
                     log2fc_min=log2fc_threshold[0],
                     log2fc_max=log2fc_threshold[1], **kwargs)
             else:  # must manually figure out cutoffs by absolute l2fc
-                raise NotImplementedError(
-                    "Code done for absolute value LFC cutoff but untested")
+                # raise NotImplementedError(
+                #     "Code done for absolute value LFC cutoff but untested")
                 tmp = sc.get.rank_genes_groups_df(
                     self.rna, x, key=key, pval_cutoff=p_threshold,
                     log2fc_min=None, log2fc_max=None, **kwargs)
-                tmp = tmp[tmp["logfoldchanges"].abs() >= log2fc_threshold]
+                tmp = tmp[tmp["logfoldchanges"].abs() >= log2fc_threshold[0]]
             tmp = tmp.sort_values("pvals_adj")  # ensure sorted by p-values
             if n_genes is not None:
                 tmp = tmp.iloc[:n_genes]  # top n_genes if wanted
