@@ -195,18 +195,19 @@ def perform_qc(adata, qc_vars=None, plot_qc=True, col_sample=None,
         adata.obs_names_make_unique()
     except Exception as err:
         print(err)
-    if recalculate_metrics is True:
-        adata.var["mt"] = adata.var_names.str.startswith((
-            "MT-", "Mt-", "mt-"))
-        adata.var["ribo"] = adata.var_names.str.startswith((
-            "RPS", "RPL", "rps", "rpl", "Rpl", "Rps"))
-        adata.var["hb"] = adata.var_names.str.contains(
-            r"^hb[^p]", case=False, regex=True)
-        kws_qc = {} if rsc and use_rapids is True else dict(inplace=True)
-        pkg.pp.calculate_qc_metrics(adata, qc_vars=qc_vars,
-                                    log1p=True, **kws_qc)
+    adata.var["mt"] = adata.var_names.str.startswith((
+        "MT-", "Mt-", "mt-"))
+    adata.var["ribo"] = adata.var_names.str.startswith((
+        "RPS", "RPL", "rps", "rpl", "Rpl", "Rps"))
+    adata.var["hb"] = adata.var_names.str.contains(
+        r"^hb[^p]", case=False, regex=True)
     if qc_vars is None:
         qc_vars = [i for i in ["mt", "ribo", "hb"] if adata.var[i].sum() > 0]
+    if recalculate_metrics is True:
+        kws_qc = {} if rsc and use_rapids is True else dict(inplace=True)
+        print(kws_qc)
+        pkg.pp.calculate_qc_metrics(adata, qc_vars=qc_vars,
+                                    log1p=True, **kws_qc)
     if plot_qc is True:
         sc.pl.violin(
             adata, ["n_genes_by_counts", "total_counts", "pct_counts_mt"],

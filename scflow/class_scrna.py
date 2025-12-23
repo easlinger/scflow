@@ -268,7 +268,7 @@ class Rna(object):
         else:
             return adata
 
-    def find_markers(self, n_genes=None, col_celltype=None,
+    def find_markers(self, n_genes=None, col_celltype=None, layer=layer_log1p,
                      rankby_abs=False, key_added=None, reference="rest",
                      plot=True, inplace=True, **kwargs):
         """Find marker genes for clusters."""
@@ -278,7 +278,8 @@ class Rna(object):
             key_added = f"rank_genes_groups_{col_celltype}"
         adata = self.rna if inplace is True else self.rna.copy()
         sc.tl.rank_genes_groups(
-            adata, col_celltype, n_genes=n_genes, reference=reference,
+            adata, col_celltype, n_genes=n_genes,
+            reference=reference, layer=layer,
             rankby_abs=rankby_abs, key_added=key_added, copy=False, **kwargs)
         if plot is True:
             sc.pl.rank_genes_groups(adata, key=key_added)
