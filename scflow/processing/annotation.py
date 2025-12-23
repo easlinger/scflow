@@ -27,7 +27,8 @@ import numpy as np
 
 def annotate_by_marker_overlap(adata, marker_gene_dict, col_celltype="leiden",
                                col_celltype_new=None, inplace=True, sep=" | ",
-                               celltypes_superhierarchical=None, **kwargs):
+                               celltypes_superhierarchical=None,
+                               method="overlap_count", **kwargs):
     """Annotate by overlap with pre-defined marker genes."""
     if inplace is False:
         adata = adata.copy()
