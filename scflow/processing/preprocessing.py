@@ -205,7 +205,6 @@ def perform_qc(adata, qc_vars=None, plot_qc=True, col_sample=None,
         qc_vars = [i for i in ["mt", "ribo", "hb"] if adata.var[i].sum() > 0]
     if recalculate_metrics is True:
         kws_qc = {} if rsc and use_rapids is True else dict(inplace=True)
-        print(kws_qc)
         pkg.pp.calculate_qc_metrics(adata, qc_vars=qc_vars,
                                     log1p=True, **kws_qc)
     if plot_qc is True:
