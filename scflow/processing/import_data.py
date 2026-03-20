@@ -66,8 +66,9 @@ def read_scrna(file_path, **kws_read):
 
 
 def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
-              col_sample="sample", col_batch=None, axis="obs",
-              join="outer", merge=None, uns_merge=None, n_top_genes=None,
+              col_sample="sample", col_batch=None, col_subject=None,
+              axis="obs", join="outer", merge=None, uns_merge=None,
+              n_top_genes=None,
               layer_log1p=layer_log1p, layer_counts=layer_counts,
               layer_scaled=layer_scaled, zero_center=True, max_value=10,
               target_sum=1e4, n_comps=None, kws_pca_final=None,
@@ -229,7 +230,8 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
         if verbose is True:
             print(f"\n>>>Subsetting to top {n_top_genes} HVGs...")
         adata = adata[:, adata.var.highly_variable]
-    col_covs = col_sample if col_batch is None else [col_sample, col_batch]
+    col_covs = col_sample if col_batch is None else [col_subject if (
+        col_subject is not None) else col_sample, col_batch]
     if verbose is True:
         ccs = col_covs if isinstance(col_covs, str) else " & ".join(col_covs)
         print(f"\n>>>Integrating with respect to {ccs} ({flavor.upper()})...")
@@ -307,6 +309,7 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
                 kws_setup["use_minified"] = kwargs.pop(x)
         else:  # scVI setup
             new_pca_key = pca_scvi
+        adata = adata.copy()
         scvi.model.SCVI.setup_anndata(adata, **kws_setup)  # setup data
         kws_train_scvi = {**kws_train}  # start with shared arguments
         for k in [i for i in ["load_sparse_tensor", "early_stopping"] if (

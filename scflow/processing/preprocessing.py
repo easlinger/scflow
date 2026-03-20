@@ -86,11 +86,17 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
     if min_max_counts is not None:
         print("\t***Filtering cells by counts...")
         if min_max_counts[0] is not None:
+            scs = adata.obs.shape[0]
             adata = adata[adata.obs[
                 "total_counts"] >= min_max_counts[0]].copy()
+            print(f"filtered out {scs - adata.obs.shape[0]} cells with "
+                  f"less than {min_max_counts[0]} counts...")
         if min_max_counts[1] is not None:
+            scs = adata.obs.shape[0]
             adata = adata[adata.obs[
                 "total_counts"] <= min_max_counts[1]].copy()
+            print(f"filtered out {scs - adata.obs.shape[0]} cells with "
+                  f"more than {min_max_counts[1]} counts...")
     if min_max_genes is not None:  # filter cells by gene counts
         print("\t***Filtering cells by genes...")
         # if min_max_genes is True or isinstance(min_max_genes, str):

@@ -73,7 +73,7 @@ def annotate_by_marker_overlap(adata, marker_gene_dict, col_celltype="leiden",
                              for v in celltypes_superhierarchical[s]))
                         ) else new_lbls[i] for i in new_lbls]))
     adata.obs.loc[:, col_celltype_new] = adata.obs[
-        col_celltype].replace(new_lbls)  # replace with best match
+        col_celltype].map(new_lbls)  # replace with best match
     return marker_matches, adata
 
 
