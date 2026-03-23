@@ -267,8 +267,7 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
     # scVI or scANVI
     elif flavor.lower() in ["scvi", "scanvi"]:
         print(f"\t***Using {layer_counts} layer for {flavor}...")
-        kws_setup = dict(layer=layer_counts, batch_key=col_covs if isinstance(
-            col_covs, str) else col_covs[0])
+        kws_setup = dict(layer=layer_counts, batch_key=col_sample)
         pca_scvi = "X_scVI"
         kss = ["size_factor_key", "categorical_covariate_keys",
                "continuous_covariate_keys"]
