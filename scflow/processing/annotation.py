@@ -75,7 +75,7 @@ def annotate_by_marker_overlap(adata, marker_gene_dict, col_celltype="leiden",
 
 
 def run_celltypist(adata, model, layer="log1p", col_celltype=None,
-                   col_celltypist_suffix="", **kwargs):
+                   col_celltypist_suffix="", filter_prediction=0, **kwargs):
     """Run CellTypist (specify `col_celltype` to plot)."""
     plot = kwargs.pop(
         "plot", col_celltype is not None and col_celltype in adata.obs)
@@ -90,6 +90,7 @@ def run_celltypist(adata, model, layer="log1p", col_celltype=None,
         f"predicted_labels{col_celltypist_suffix}")  # cell-level predictions
     if plot is True:
         celltypist.dotplot(predictions, use_as_reference=col_celltype,
+                           filter_prediction=filter_prediction,
                            use_as_prediction="predicted_labels")  # plot
     if "majority_voting" in kwargs and kwargs[
             "majority_voting"] is True:  # majority voting labels >
