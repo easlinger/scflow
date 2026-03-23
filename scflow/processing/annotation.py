@@ -75,7 +75,8 @@ def annotate_by_marker_overlap(adata, marker_gene_dict, col_celltype="leiden",
 
 
 def run_celltypist(adata, model, layer="log1p", col_celltype=None,
-                   col_celltypist_suffix="", filter_prediction=0, **kwargs):
+                   col_celltypist_suffix="",
+                   min_prop=0, filter_prediction=0, **kwargs):
     """Run CellTypist (specify `col_celltype` to plot)."""
     plot = kwargs.pop(
         "plot", col_celltype is not None and col_celltype in adata.obs)
@@ -85,13 +86,18 @@ def run_celltypist(adata, model, layer="log1p", col_celltype=None,
         adata = adata.copy()  # TODO: not memory efficient...
         adata.X = adata.layers[layer].copy()
     predictions = celltypist.annotate(
-        adata, model=model, **kwargs)  # CellTypist
+        adata, model=model, min_prop=min_prop, **kwargs)  # CellTypist
     obs_add = predictions.predicted_labels["predicted_labels"].to_frame(
         f"predicted_labels{col_celltypist_suffix}")  # cell-level predictions
     if plot is True:
+        print("\t***Filtering predicted cell types with assignment"
+              f" fractions <{filter_prediction}")
         celltypist.dotplot(predictions, use_as_reference=col_celltype,
                            filter_prediction=filter_prediction,
                            use_as_prediction="predicted_labels")  # plot
+    else:
+        if filter_prediction != 0:
+            warn("`filter_prediction` not applied because `plot=False`.")
     if "majority_voting" in kwargs and kwargs[
             "majority_voting"] is True:  # majority voting labels >
         obs_add = obs_add.join(predictions.predicted_labels[
