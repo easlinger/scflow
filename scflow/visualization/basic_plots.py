@@ -102,6 +102,7 @@ def plot_matrix(adata, genes=None, col_celltype=None,
                 return_fig=True, title=None, **kwargs):
     """Plot a gene expression matrix plot."""
     kws_gs = get_kws_gridspec(kwargs)
+    show_gene_labels = kwargs.pop("show_gene_labels", True)
     if "standard_scale" in kwargs and kwargs["standard_scale"] == "obs":
         kwargs["standard_scale"] = "group"  # convert if used heatmap style
     fontsize = kwargs.pop("fontsize", None)
@@ -112,8 +113,11 @@ def plot_matrix(adata, genes=None, col_celltype=None,
                            return_fig=return_fig, **kwargs)
     if fig is not None:
         fig = {"returned": fig}
-        fig["scanpy"] = fig["returned"].get_axes(),
+        fig["scanpy"] = fig["returned"].get_axes()
         fig["fig"] = fig["returned"].get_axes()["mainplot_ax"].get_figure()
+    if show_gene_labels is False:  # don't show gene labels
+        fig["returned"].fig.axes[0].set_xticklabels([""] * len(fig[
+            "returned"].fig.axes[0].get_xticklabels()))
     if title is not None:
         fig["fig"].suptitle(title, fontsize=fontsize)
     if kws_gs is not None:

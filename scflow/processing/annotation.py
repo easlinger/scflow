@@ -51,9 +51,6 @@ def annotate_by_marker_overlap(adata, marker_gene_dict, col_celltype="leiden",
     if celltypes_superhierarchical is not None:
         # replace supercluster with subcluster if runner-up
         for k in celltypes_superhierarchical:
-            marker_matches[new_lbls[new_lbls.apply(
-                lambda x: x == k)].index].apply(lambda x: sep.join(np.array(
-                    marker_matches.index.values)[np.where(x == max(x))[0]]))
             mks = marker_matches[new_lbls[new_lbls.apply(
                 lambda x: x == k)].index].drop(k).apply(
                     lambda x: sep.join(np.array(marker_matches.index.values)[
