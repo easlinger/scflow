@@ -312,6 +312,7 @@ class Rna(object):
             if "violin" in plot:
                 kwp = {**kws_plot}
                 _ = kwp.pop("dendrogram", None)
+                _ = kwp.pop("figsize", None)
                 sc.pl.rank_genes_groups_violin(adata, **kwp)
         if inplace is False:
             mks = sc.get.rank_genes_groups_df(

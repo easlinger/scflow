@@ -11,6 +11,7 @@ retrieval of plot functions.
 """
 
 import matplotlib.pyplot as plt
+import colorsys
 import marsilea as ma
 import marsilea.plotter as mp
 import scanpy as sc
@@ -51,6 +52,22 @@ def square_grid(n_subs):
     if rows == 2 and cols == 2 and n_subs == 3:
         rows, cols = 1, 3
     return rows, cols
+
+
+def distinct_colors(n, existing=(), saturation=0.65, value=0.85):
+    """Get distinct color codes."""
+    used = [colorsys.rgb_to_hsv(*[
+        int(c.lstrip("#")[i:i+2], 16)/255 for i in (0, 2, 4)])[0]
+            for c in existing]
+    hues = []
+    for _ in range(n):
+        hues.append(max(range(360), key=lambda h: min((
+            min(abs(h/360 - u), 1 - abs(h/360 - u))
+            for u in used + hues), default=1.0)) / 360)
+    color_list = ["#{:02x}{:02x}{:02x}".format(
+        *[int(x*255) for x in colorsys.hsv_to_rgb(h, saturation, value)])
+                  for h in hues]
+    return color_list
 
 
 def plot_scatter(adata, var_x, var_y, title=None, **kwargs):
@@ -150,6 +167,18 @@ def plot_matrix_marsilea(adata, genes=None, col_celltype=None,
     if cell_colors is None:
         cell_colors = adata.uns[f"{col_celltype}_colors"] if (
             f"{col_celltype}_colors" in adata.uns) else None
+        cell_colors = dict(zip(adata.obs[
+            col_celltype].cat.categories, cell_colors))
+        cell_colors = [cell_colors[k] if k in cell_colors else None
+                       for k in genes]
+        new_colors = distinct_colors(sum([i is None for i in cell_colors]),
+                                     existing=[i for i in cell_colors if i])
+        if len(new_colors) > 0:
+            cnt = 0
+            for i in np.arange(len(cell_colors)):
+                if cell_colors[i] is None:
+                    cell_colors[i] = new_colors[cnt]
+                    cnt += 1
     agg = sc.get.aggregate(adata[:, markers], by=col_celltype,
                            func=["mean", "count_nonzero"])
     agg.obs["cell_counts"] = adata.obs[col_celltype].value_counts()
