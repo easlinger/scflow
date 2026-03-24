@@ -11,6 +11,8 @@ retrieval of plot functions.
 """
 
 import matplotlib.pyplot as plt
+import marsilea as ma
+import marsilea.plotter as mp
 import scanpy as sc
 import math
 import numpy as np
@@ -86,12 +88,21 @@ def plot_heat(adata, genes=None, col_celltype=None, title=None, **kwargs):
 
 
 def plot_dot(adata, genes=None, col_celltype=None, return_fig=True,
-             title=None, **kwargs):
+             title=None, add_totals=True, **kwargs):
     """Plot a gene expression dot plot."""
-    fig = sc.pl.dotplot(adata, genes, col_celltype,
-                        return_fig=return_fig, **kwargs)
-    if title is not None:  # title?
-        fig.fig_title = title
+    swap_axes = kwargs.pop("swap_axes", False)
+    if isinstance(genes, dict):  # dict will make brackets grouping genes...
+        title = title + "\n\n" if title else title  # ...ensure space up top
+    # top = kwargs.pop("top", 0.9)
+    fig = sc.pl.DotPlot(adata, genes, col_celltype, title=title, **kwargs)
+    # if title is not None:  # title?
+    #     fig.fig_title = title
+    #     fig.get_axes()["mainplot_ax"].figure.subplots_adjust(top=top)
+    # else:
+    if add_totals is True:
+        fig.add_totals()
+    if swap_axes is True:
+        fig.swap_axes()
     if ("show" not in kwargs or kwargs["show"] is True) and (
             return_fig is True):
         fig.show()
@@ -125,6 +136,41 @@ def plot_matrix(adata, genes=None, col_celltype=None,
     # if show_later is True:
     #     fig["returned"].show()
     return fig
+
+
+def plot_matrix_marsilea(adata, genes=None, col_celltype=None,
+                         cmap="coolwarm", vcenter=0,
+                         cell_colors=None, figsize=None):
+    """Plot matrix using Marsilea (adapted `scanpy` tutorial)."""
+    cells, markers = [], []
+    for c, ms in genes.items():
+        cells += [c] * len(ms)
+        markers += ms
+    uni_cells = list(genes.keys())
+    if cell_colors is None:
+        cell_colors = adata.uns[f"{col_celltype}_colors"] if (
+            f"{col_celltype}_colors" in adata.uns) else None
+    agg = sc.get.aggregate(adata[:, markers], by=col_celltype,
+                           func=["mean", "count_nonzero"])
+    agg.obs["cell_counts"] = adata.obs[col_celltype].value_counts()
+    agg_exp = agg.layers["mean"]
+    # agg_count = agg.layers["count_nonzero"]
+    agg_cell_counts = agg.obs["cell_counts"].to_numpy()
+    if figsize is None:
+        figsize = (agg_exp.shape[1] / 3, agg_exp.shape[0] / 3)
+    mpp = ma.Heatmap(
+        agg_exp, height=figsize[1], width=figsize[0], center=vcenter,
+        cmap=cmap, linewidth=0.5, linecolor="lightgray", label="Expression")
+    mpp.add_right(mp.Labels(agg.obs[col_celltype], align="center"), pad=0.1)
+    mpp.add_top(mp.Labels(markers), pad=0.1)
+    mpp.group_cols(cells, order=uni_cells)
+    mpp.add_top(mp.Chunk(uni_cells, fill_colors=cell_colors, rotation=90))
+    mpp.add_left(mp.Numbers(agg_cell_counts, color="#EEB76B", label="Count"),
+                 pad=0.2)
+    mpp.add_dendrogram("right", pad=0.1)
+    mpp.add_legends()
+    mpp.render()
+    return mpp
 
 
 def plot_violin(adata, genes=None, col_celltype=None,

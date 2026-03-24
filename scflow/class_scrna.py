@@ -225,11 +225,11 @@ class Rna(object):
             genes).intersection(adata.var_names))  # valid gene names
         if g_original is not None and len(g_original) > len(genes):
             warn(f"Genes not found: {set(genes).difference(set(g_original))}")
-        print(g_original)
+        # print(g_original)
         expr = (adata if genes is None else adata[:, genes])
         expr = expr.X if layer is None else expr.layers[layer].copy()
         expr = expr.toarray() if issparse(expr) else expr
-        return pd.DataFrame(expr, columns=genes)
+        return pd.DataFrame(expr, index=adata.obs.index, columns=genes)
 
     def preprocess(self, inplace=True, **kws_pp):
         """Filter, normalize, and perform QC on data."""
@@ -268,24 +268,54 @@ class Rna(object):
         else:
             return adata
 
-    def find_markers(self, n_genes=None, col_celltype=None, layer=layer_log1p,
-                     rankby_abs=False, key_added=None, reference="rest",
-                     plot=True, inplace=True, **kwargs):
-        """Find marker genes for clusters."""
+    def find_markers(self, n_genes=None, col_celltype=None, groups=None,
+                     layer=layer_log1p, rankby_abs=False,
+                     key_added=None, reference="rest",
+                     pts=True, plot=True, kws_plot=None,
+                     inplace=True, **kwargs):
+        """
+        Find marker genes for clusters.
+
+        Set `plot` to a string or list, choosing among
+        ['basic', 'heat', 'dot', 'matrix', 'violin'] to plot expression
+        of gene markers. `plot` = ['basic', 'dot'] if `plot=True`.
+        """
         if col_celltype is None:
             col_celltype = self._info["col_celltype"]
         if key_added is None:
             key_added = f"rank_genes_groups_{col_celltype}"
         adata = self.rna if inplace is True else self.rna.copy()
+        grps = groups if groups is None or reference == "rest" else [
+            i for i in groups if i != reference]  # not including reference
+        if groups is not None:
+            kwargs["groups"] = groups
         sc.tl.rank_genes_groups(
             adata, col_celltype, n_genes=n_genes,
-            reference=reference, layer=layer,
+            reference=reference, layer=layer, pts=pts,
             rankby_abs=rankby_abs, key_added=key_added, copy=False, **kwargs)
-        if plot is True:
-            sc.pl.rank_genes_groups(adata, key=key_added)
+        sc.tl.dendrogram(adata, col_celltype)
+        if plot not in [False, None]:  # plotting
+            plot = ["basic", "dot"] if plot is True else [plot] if isinstance(
+                plot, str) else plot
+            kws_plot = {} if kws_plot is None else {**kws_plot}
+            kws_plot.update({"key": key_added, "n_genes": n_genes})
+            if "groups" not in kws_plot and grps is not None:
+                kws_plot["groups"] = grps
+            if "basic" in plot:
+                sc.pl.rank_genes_groups(adata, key=key_added)
+            if "dot" in plot:
+                sc.pl.rank_genes_groups_dotplot(adata, **kws_plot)
+            if "matrix" in plot:
+                sc.pl.rank_genes_groups_matrixplot(adata, **kws_plot)
+            if "heat" in plot:
+                sc.pl.rank_genes_groups_heatmap(adata, **kws_plot)
+            if "violin" in plot:
+                kwp = {**kws_plot}
+                _ = kwp.pop("dendrogram", None)
+                sc.pl.rank_genes_groups_violin(adata, **kwp)
         if inplace is False:
             mks = sc.get.rank_genes_groups_df(
-                adata, None, key=key_added).set_index("names", append=True)
+                adata, grps, key=key_added).set_index("names", append=True)
             return mks
 
     def get_markers_df(self, n_genes=None, col_celltype=None,
