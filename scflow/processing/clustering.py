@@ -16,7 +16,7 @@ except Exception:
 
 
 def cluster(adata, col_celltype="leiden", seed=0,
-            n_comps=None, resolution=1, min_dist=0.5,
+            n_comps=None, resolution=1, min_dist=0.5, spread=1,
             kws_pca=None, kws_neighbors=None, layer="log1p",
             kws_cluster=None, kws_umap=None, plot=True, inplace=False):
     """Cluster omics data."""
@@ -40,8 +40,9 @@ def cluster(adata, col_celltype="leiden", seed=0,
     print(f"\t***Building neighborhood{' with ' + str(n_n) if n_n else ''}...")
     (rsc if rsc else sc).pp.neighbors(adata, random_state=seed,
                                       **kws_neighbors)  # neighbors
-    print(f"\t***Embedding UMAP with minimum distance {min_dist}...")
-    (rsc if rsc else sc).tl.umap(adata, min_dist=min_dist,
+    print(f"\t***Embedding UMAP with minimum distance {min_dist} & "
+          f"spread {spread}...")
+    (rsc if rsc else sc).tl.umap(adata, min_dist=min_dist, spread=spread,
                                  random_state=seed, **kws_umap)  # UMAP
     print(f"\t***Performing Leiden clustering with resolution {resolution}...")
     (rsc if rsc else sc).tl.leiden(
