@@ -220,7 +220,8 @@ class Rna(object):
     def get_gex_matrix(self, genes=None, subset=None, layer=None):
         """Get gene expression matrix."""
         adata = self.rna if subset is None else self.rna[subset]
-        g_original = [genes] if isinstance(genes, str) else genes
+        genes = [genes] if isinstance(genes, str) else genes
+        g_original = list(genes)
         genes = None if genes is None else list(set(
             genes).intersection(adata.var_names))  # valid gene names
         if g_original is not None and len(g_original) > len(genes):
