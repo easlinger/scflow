@@ -145,7 +145,7 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
         #     adata.X = np.ascontiguousarray(adata.X, dtype="float32")
         pkg.pp.scrublet(adata, batch_key=col_sample)  # detect doublets
         try:
-            pkg.pl.scrublet_score_distribution(adata)
+            sc.pl.scrublet_score_distribution(adata)
         except Exception as err:
             print(f"\n\nCould not plot scrublet score distribution: {err}\n")
         if doublet_detection == "drop":
