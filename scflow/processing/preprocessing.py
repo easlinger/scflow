@@ -149,6 +149,7 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
         except Exception as err:
             print(f"\n\nCould not plot scrublet score distribution: {err}\n")
         if doublet_detection == "drop":
+            print("\t\t***Dropping doublets...")
             adata = adata[~adata.obs[
                 "predicted_doublet"]].copy()  # drop doublets
         # if use_rapids is True:
