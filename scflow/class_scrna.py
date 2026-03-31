@@ -172,7 +172,8 @@ class Rna(object):
                        "stacked_violin", "violin"]
         colors_plots = ["scatter", "umap"]
         if kind is None:  # if no plot kind specified
-            kind = ["umap", "heat", "violin"]
+            kind = [g for g in gby if g in kwargs]  # if plot kwargs specified
+            kind = kind if len(kind) > 0 else ["umap", "heat", "violin"]
         if isinstance(kind, str):  # ensure consistency if just 1 plot kind
             if kind not in kwargs:
                 kwargs = {kind: kwargs}  # make kwargs keyed ~ kind
@@ -229,7 +230,10 @@ class Rna(object):
         # print(g_original)
         expr = (adata if genes is None else adata[:, genes])
         expr = expr.X if layer is None else expr.layers[layer].copy()
-        expr = expr.toarray() if issparse(expr) else expr
+        if hasattr(expr, "toarray"):
+            expr = expr.toarray()
+        if hasattr(expr, "get"):
+            expr = expr.get()
         return pd.DataFrame(expr, index=adata.obs.index, columns=genes)
 
     def preprocess(self, inplace=True, **kws_pp):
