@@ -219,6 +219,7 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
     print("\n>>>Re-Normalizing & Finding HVGs for Overall Data...")
     adata.X = adata.layers[layer_counts].copy()  # back to counts layer
     if min_cells is not None:
+            print(f"\n>>>Filtering genes expressed in < {min_cells} cells...")
         sc.pp.filter_genes(adata, min_cells=min_cells)
     sc.pp.normalize_total(adata, target_sum=target_sum)
     sc.pp.log1p(adata)
