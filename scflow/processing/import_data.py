@@ -7,6 +7,7 @@ Functions for data reading, concatenation, integration, etc.
 """
 
 import os
+import matplotlib.pyplot as plt
 import anndata
 import scanpy as sc
 import scvi
@@ -67,8 +68,8 @@ def read_scrna(file_path, **kws_read):
 
 def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
               col_sample="sample", col_batch=None, col_subject=None,
-              axis="obs", join="outer", merge=None, uns_merge=None,
-              n_top_genes=None,
+              axis="obs", join="outer", merge=None,
+              uns_merge=None, n_top_genes=None, min_cells=None,
               layer_log1p=layer_log1p, layer_counts=layer_counts,
               layer_scaled=layer_scaled, zero_center=True, max_value=10,
               target_sum=1e4, n_comps=None, kws_pca_final=None,
@@ -119,6 +120,11 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
         col_batch (str or list, optional): Like `col_sample`. If
             specified, integration will be performed with respect to
             both `col_sample` and `col_batch`.
+        min_cells (None or int, optional): Re-filter genes by minimum
+            number of cells with non-zero expression (if not None).
+            Useful if you're concatenating multiple samples in which
+            you didn't filter genes in case they were expressed enough
+            in some samples but not others.
     """
     pkg = sc if rsc is None or use_rapids is False else rsc
     if rsc is None:
@@ -212,6 +218,8 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
     # Re-Normalization & HVGs
     print("\n>>>Re-Normalizing & Finding HVGs for Overall Data...")
     adata.X = adata.layers[layer_counts].copy()  # back to counts layer
+    if min_cells is not None:
+        sc.pp.filter_genes(adata, min_cells=min_cells)
     sc.pp.normalize_total(adata, target_sum=target_sum)
     sc.pp.log1p(adata)
     sc.pp.highly_variable_genes(
@@ -229,7 +237,7 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
         adata_original = adata.copy()
         if verbose is True:
             print(f"\n>>>Subsetting to top {n_top_genes} HVGs...")
-        adata = adata[:, adata.var.highly_variable]
+        adata = adata[:, adata.var.highly_variable].copy()
     col_covs = col_sample if col_batch is None else [col_subject if (
         col_subject is not None) else col_sample, col_batch]
     if verbose is True:
@@ -332,6 +340,22 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
                         adata)
                 except Exception as err:
                     print(err)
+            if verbose is True:
+                try:
+                    dff = adata.obs.groupby([
+                        col_celltype, "annotation_scanvi"]).size().unstack(
+                            fill_value=0)
+                    conf_mat = dff / dff.sum(axis=1).values[:, np.newaxis]
+                    plt.figure(figsize=(8, 8))
+                    _ = plt.pcolor(conf_mat)
+                    _ = plt.xticks(np.arange(0.5, len(dff.columns), 1),
+                                   dff.columns, rotation=90)
+                    _ = plt.yticks(np.arange(0.5, len(dff.index), 1),
+                                   dff.index)
+                    plt.xlabel("Predicted")
+                    plt.ylabel("Observed")
+                except Exception as err:
+                    print(f"\nCould not plot scANVI confusion matrix: {err}")
         # if use_rapids is True:
         #     model.to_device("cpu")
         adata.obsm[new_pca_key] = model.get_latent_representation()
@@ -342,6 +366,8 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
             if "annotation_scanvi" in adata.obs:
                 adata_original.obs["annotation_scanvi"] = adata.obs[
                     "annotation_scanvi"].copy()
+            for x in [q for q in adata.obs if q not in adata_original.obs]:
+                adata_original.obs[x] = adata.obs[x].copy()
             adata = adata_original
 
     # Scanorama

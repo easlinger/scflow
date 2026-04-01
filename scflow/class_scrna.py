@@ -23,9 +23,10 @@ warnings.simplefilter(action="default")
 class Rna(object):
     """A class for single-cell RNA-seq data."""
 
-    def __init__(self, file_path=None, col_sample=None, col_batch=None,
+    def __init__(self, file_path=None,
+                 col_sample=None, col_subject=None, col_batch=None,
                  kws_read=None, col_celltype=None, kws_integrate=None,
-                 assay=None, inplace=False, **kwargs):
+                 assay=None, integrated=False, inplace=False, **kwargs):
         """
         Initialize class instance.
 
@@ -53,7 +54,6 @@ class Rna(object):
                 function (if passed list or dict to `file_path`).
 
         """
-        integrated = False
         if kws_read is None:
             kws_read = {}
         if isinstance(file_path, (list, dict)) or (
@@ -72,8 +72,10 @@ class Rna(object):
             #         AnnData, MuData)) else scflow.pp.read_scrna(
             #             file_path[x], **kws_read[x]) for x in file_path
             #     ]  # read individual files if needed
-            kws_integrate = {**dict(col_sample=col_sample,
-                                    col_batch=col_batch), **kws_integrate}
+            kws_integrate = {**dict(
+                col_sample=col_sample, col_subject=col_subject,
+                col_batch=col_batch), **kws_integrate}
+            print(f"\n***Using {kws_integrate} as integration keywords")
             adata = scflow.pp.integrate(file_path, **kws_integrate)  # Harmony
             integrated = True
         elif isinstance(file_path, (AnnData, MuData)):  # just load Ann/MuData
@@ -96,6 +98,7 @@ class Rna(object):
             adata = scflow.pp.read_scrna(file_path, **kws_read)
         self._info = {"col_sample": col_sample,
                       "col_batch": col_batch,
+                      "col_subject": col_subject,
                       "kws_read": kws_read,
                       "kws_integrate": kws_integrate,
                       "integrated": integrated,
@@ -248,6 +251,10 @@ class Rna(object):
                 resolution=1, min_dist=0.5,
                 use_highly_variable=True, inplace=True, seed=0, **kws):
         """Perform Leiden clustering."""
+        if "mask_var" in kws or ("kws_pca" in kws and isinstance(kws[
+                "kws_pca"], dict) and "mask_var" in kws["kws_pca"]):
+            raise ValueError("Use `use_highly_variable` argument instead of "
+                             "`mask_var`.")
         adata = self.rna if inplace is True else self.rna.copy()
         if layer is not None:
             adata.X = adata.layers[layer].copy()
@@ -264,6 +271,7 @@ class Rna(object):
                     "Integrated datasets should use `kws_pca=False`")
         if kws["kws_pca"] is not False:
             kws["kws_pca"]["use_highly_variable"] = use_highly_variable
+            kws["kws_pca"]["mask_var"] = use_highly_variable
         adata = scflow.pp.cluster(adata, resolution=resolution, seed=seed,
                                   min_dist=min_dist, inplace=True, **kws)
         if self._info["col_celltype"] is None:  # update default column
