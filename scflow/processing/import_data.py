@@ -165,6 +165,7 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
                         "use_rapids": use_rapids, "inplace": True})
                     # if rsc is not None:
                     #     adata[x].X = cupy_csr_matrix(adata[x].X)
+
         # Clustering
         if kws_cluster is not None:
             print("\n\n")
@@ -202,25 +203,28 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
             adata = dict(zip(sample_ids, adata))  # convert list to dictionary
         first_args = [adata, out_file]  # positional arguments to concatenate
     else:
+        print("\n>>>File appears concatenated already. Proceeding...")
         pass  # already concatenated
 
     # Concatenation
     if isinstance(adata, (list, dict)):  # if needs concatenation
         print("\n>>>Concatenating data...")
+        if merge is not None or uns_merge is not None:
+            warn("\n`merge`/`uns_merge` other than None not yet supported\n")
         adata = fx_concat(
             *first_args, axis=axis, join=join,
-            merge=merge, uns_merge=uns_merge,
+            # merge=merge, uns_merge=uns_merge,
             label=col_sample, index_unique=index_unique,
             pairwise=pairwise, fill_value=fill_value)  # concatenate
         if adata is None:  # if wrote to file instead of doing in memory...
             adata = sc.read_h5ad(out_file)
 
     # Re-Normalization & HVGs
-    print("\n>>>Re-Normalizing & Finding HVGs for Overall Data...")
     adata.X = adata.layers[layer_counts].copy()  # back to counts layer
     if min_cells is not None:
         print(f"\n>>>Filtering genes expressed in < {min_cells} cells...")
         sc.pp.filter_genes(adata, min_cells=min_cells)
+    print("\n>>>Re-Normalizing & Finding HVGs for Overall Data...")
     sc.pp.normalize_total(adata, target_sum=target_sum)
     sc.pp.log1p(adata)
     sc.pp.highly_variable_genes(
