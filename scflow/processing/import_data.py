@@ -74,7 +74,7 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
               layer_scaled=layer_scaled, zero_center=True, max_value=10,
               target_sum=1e4, n_comps=None, kws_pca_final=None,
               index_unique="_", fill_value=None, pairwise=False,
-              basis="X_pca", drop_non_hvgs=False,
+              basis="X_pca", drop_non_hvgs=False, retain_original=True,
               plot_qc=False, out_file=None, vars_regress_out=None,
               use_rapids=True, verbose=True, layer=None,
               flavor="harmony", col_celltype=None, **kwargs):
@@ -239,7 +239,7 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
     adata.layers[layer_scaled] = adata.X.copy()
     adata_original = None
     if drop_non_hvgs is True:  # only retain HVGs for integration?
-        adata_original = adata.copy()
+        adata_original = adata.copy() if retain_original is True else None
         if verbose is True:
             print(f"\n>>>Subsetting to top {n_top_genes} HVGs...")
         adata = adata[:, adata.var.highly_variable].copy()
@@ -408,9 +408,18 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
         except Exception as err:
             print(f"\n\nUMAP plotting failed: {err}")
         try:
-            _ = scflow.pp.perform_qc(
-                adata, plot_qc=verbose, inplace=True,
-                use_rapids=use_rapids, recalculate_metrics=False)
+            adata.var["mt"] = adata.var_names.str.startswith((
+                "MT-", "Mt-", "mt-"))
+            adata.var["ribo"] = adata.var_names.str.startswith((
+                "RPS", "RPL", "rps", "rpl", "Rpl", "Rps"))
+            adata.var["hb"] = adata.var_names.str.contains(
+                r"^hb[^p]", case=False, regex=True)
+            qc_vars = [i for i in ["mt", "ribo", "hb"] if adata.var[
+                i].sum() > 0]
+            qc_new = sc.pp.calculate_qc_metrics(
+                adata, qc_vars=qc_vars, layer="counts", inplace=False)
+            adata.obs = adata.obs.join(qc_new[0], lsuffix="_original")
+            adata.var = adata.var.join(qc_new[1], lsuffix="_original")
         except Exception as err:
             print(f"\n\nQC plotting failed: {err}\n\n")
     return adata
