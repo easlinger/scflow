@@ -206,12 +206,7 @@ def perform_qc(adata, qc_vars=None, plot_qc=True, col_sample=None,
         adata.obs_names_make_unique()
     except Exception as err:
         print(err)
-    adata.var["mt"] = adata.var_names.str.startswith((
-        "MT-", "Mt-", "mt-"))
-    adata.var["ribo"] = adata.var_names.str.startswith((
-        "RPS", "RPL", "rps", "rpl", "Rpl", "Rps"))
-    adata.var["hb"] = adata.var_names.str.contains(
-        r"^hb[^p]", case=False, regex=True)
+    adata = classify_gene_types(adata)
     if qc_vars is None:
         qc_vars = [i for i in ["mt", "ribo", "hb"] if adata.var[i].sum() > 0]
     if recalculate_metrics is True:
@@ -240,6 +235,17 @@ def perform_qc(adata, qc_vars=None, plot_qc=True, col_sample=None,
                       color="pct_counts_mt")  # QC scatter plot
     if rsc is not None and to_gpu is True and use_rapids is True:
         rsc.get.anndata_to_CPU(adata)  # move backj to cpu
+    return adata
+
+
+def classify_gene_types(adata):
+    """Classify gene types (e.g., mitochondrial)."""
+    adata.var["mt"] = adata.var_names.str.startswith((
+        "MT-", "Mt-", "mt-"))
+    adata.var["ribo"] = adata.var_names.str.startswith((
+        "RPS", "RPL", "rps", "rpl", "Rpl", "Rps"))
+    adata.var["hb"] = adata.var_names.str.contains(
+        r"^hb[^p]", case=False, regex=True)
     return adata
 
 

@@ -42,6 +42,18 @@ import scflow
 layer_log1p = "log1p"
 layer_counts = "counts"
 layer_scaled = "scaled"
+KWS_SCVI = [
+    "max_epochs", "accelerator", "devices", "train_size", "validation_size",
+    "shuffle_set_split", "batch_size", "datasplitter_kwargs", "plan_kwargs",
+    "datamodule", "benchmark", "default_root_dir", "enable_checkpointing",
+    "checkpointing_monitor", "num_sanity_val_steps", "enable_model_summary",
+    "early_stopping", "early_stopping_monitor", "early_stopping_min_delta",
+    "early_stopping_patience", "early_stopping_warmup_epochs", "logger",
+    "early_stopping_mode", "enable_progress_bar", "progress_bar_refresh_rate",
+    "simple_progress_bar", "log_every_n_steps", "learning_rate_monitor"
+]
+KWS_SCANVI = ["n_samples_per_label", "check_val_every_n_epoch",
+              "adversarial_classifier"]
 
 
 def read_scrna(file_path, **kws_read):
@@ -74,10 +86,11 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
               layer_scaled=layer_scaled, zero_center=True, max_value=10,
               target_sum=1e4, n_comps=None, kws_pca_final=None,
               index_unique="_", fill_value=None, pairwise=False,
-              basis="X_pca", drop_non_hvgs=False, retain_original=True,
+              basis="X_pca", drop_non_hvgs=False, retain_original=False,
               plot_qc=False, out_file=None, vars_regress_out=None,
               use_rapids=True, verbose=True, layer=None,
-              flavor="harmony", col_celltype=None, **kwargs):
+              out_file_processed=None, flavor="harmony",
+              col_celltype=None, conserve_memory=False, **kwargs):
     """
     Integrate scRNA-seq anndata objects with `Harmony`.
 
@@ -94,6 +107,10 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
             column is missing for any object or
             has more than one value in it,
             a sample ID will be created ('sample_#').
+        out_file (str or None, optional): File path to write
+            CONCATENATED (not fully processed/integrated) object
+            in case using the on-disk concatenate option to save
+            memory by writing to disk.
         kws_pp (dict or None, optional): Dictionary containing
             preprocessing keyword arguments to be passed to
             `scflow.pp.preprocess`. If sample-specific, key the
@@ -127,6 +144,7 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
             in some samples but not others.
     """
     pkg = sc if rsc is None or use_rapids is False else rsc
+    new_pca_key = kwargs.pop("new_pca_key", f"X_pca_{flavor.lower()}")
     if rsc is None:
         use_rapids = False
     if kws_pca_final is None:
@@ -219,38 +237,8 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
         if adata is None:  # if wrote to file instead of doing in memory...
             adata = sc.read_h5ad(out_file)
 
-    # Re-Normalization & HVGs
-    adata.X = adata.layers[layer_counts].copy()  # back to counts layer
-    if min_cells is not None:
-        print(f"\n>>>Filtering genes expressed in < {min_cells} cells...")
-        sc.pp.filter_genes(adata, min_cells=min_cells)
-    print("\n>>>Re-Normalizing & Finding HVGs for Overall Data...")
-    sc.pp.normalize_total(adata, target_sum=target_sum)
-    sc.pp.log1p(adata)
-    sc.pp.highly_variable_genes(
-        adata, n_top_genes=n_top_genes,  # batch_key=col_sample,
-        flavor="cell_ranger")  # find highly variable
-    if verbose is True:
-        sc.pl.highly_variable_genes(adata)  # plot HVGs
-    if vars_regress_out is not None:
-        sc.pp.regress_out(adata, vars_regress_out)
-    adata.layers[layer_log1p] = adata.X.copy()
-    sc.pp.scale(adata, zero_center=zero_center, max_value=max_value)
-    adata.layers[layer_scaled] = adata.X.copy()
-    adata_original = None
-    if drop_non_hvgs is True:  # only retain HVGs for integration?
-        adata_original = adata.copy() if retain_original is True else None
-        if verbose is True:
-            print(f"\n>>>Subsetting to top {n_top_genes} HVGs...")
-        adata = adata[:, adata.var.highly_variable].copy()
-    col_covs = col_sample if col_batch is None else [col_subject if (
-        col_subject is not None) else col_sample, col_batch]
-    if verbose is True:
-        ccs = col_covs if isinstance(col_covs, str) else " & ".join(col_covs)
-        print(f"\n>>>Integrating with respect to {ccs} ({flavor.upper()})...")
-    new_pca_key = None
-
     # To GPU (Optionally)
+    pkg = rsc if use_rapids is True else sc
     if use_rapids is True:  # make sure proper matrix format for `rapids`
         for x in adata.layers:
             if (sparse.isspmatrix_csc(adata.layers[x]) or (
@@ -261,6 +249,56 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
             adata.X = sparse.csr_matrix(adata.X)
         rsc.get.anndata_to_GPU(adata)
 
+    # Re-Filter Genes by `min_cells` (Optionally) & Re-Normalize
+    adata.X = adata.layers[layer_counts].copy()  # back to counts layer
+    try:
+        adata = scflow.pp.classify_gene_types(adata)
+        qc_vars = [i for i in ["mt", "ribo", "hb"] if adata.var[i].sum() > 0]
+        qc_new = pkg.pp.calculate_qc_metrics(
+            adata, qc_vars=qc_vars, layer=layer_counts, inplace=False)
+        adata.obs = adata.obs.join(qc_new[0], rsuffix="_integrated")
+        adata.var = adata.var.join(qc_new[1], rsuffix="_integrated")
+    except Exception as err:
+        print(f"\n\nCalculating new QC metrics failed: {err}\n\n")
+    if min_cells is not None:
+        print(f"\n>>>Filtering genes expressed in < {min_cells} cells...")
+        pkg.pp.filter_genes(adata, min_cells=min_cells)
+    print("\n>>>Re-normalizing & log-transforming data...")
+    pkg.pp.normalize_total(adata, target_sum=target_sum)
+    pkg.pp.log1p(adata)
+    if vars_regress_out is not None:
+        print(f"\n>>>Regressing out {vars_regress_out}...")
+        pkg.pp.regress_out(adata, vars_regress_out)
+    adata.layers[layer_log1p] = adata.X.copy()
+    print("\n>>>Scaling data...")
+    pkg.pp.scale(adata, zero_center=zero_center, max_value=max_value)
+    adata.layers[layer_scaled] = adata.X.copy()
+    if out_file_processed is not None:
+        print(f"\n>>>Writing processed file to {out_file_processed}...")
+        adata.write_h5ad(out_file_processed)
+
+    # Find (& Optionally Subset by) HVGs; (Optionally) Store Original Object
+    print(f"\n>>>Finding HVGs for data using `{layer_log1p}` layer" + str(
+        " & dropping non-HVGs..." if drop_non_hvgs is True else "..."))
+    adata_original = adata.copy() if all([
+        drop_non_hvgs, retain_original]) else None  # in case dropping non-HVG
+    pkg.pp.highly_variable_genes(
+        adata, n_top_genes=n_top_genes, layer=layer_log1p,
+        flavor="cell_ranger", batch_key=col_sample,
+        subset=drop_non_hvgs)  # find (optionally subset to) highly variable
+    if verbose is True:
+        try:
+            sc.pl.highly_variable_genes(adata)  # plot HVGs
+        except Exception as err:
+            print(f"Failed to plot HVGs: {err}")
+
+    # Batch Keys/Covariates
+    col_covs = col_sample if col_batch is None else [col_subject if (
+        col_subject is not None) else col_sample, col_batch]
+    if verbose is True:
+        ccs = col_covs if isinstance(col_covs, str) else " & ".join(col_covs)
+        print(f"\n>>>Integrating with respect to {ccs} ({flavor.upper()})...")
+
     # Harmony
     if flavor.lower() == "harmony":
         print(f"\t***Using {layer_log1p} layer for Harmony...")
@@ -269,19 +307,11 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
             use_rapids is True) else sc.external.pp.harmony_integrate  # fx?
         fxi(adata, col_covs, basis=basis,
             adjusted_basis=f"{basis}_harmony", **kwargs)  # Harmony
-        new_pca_key = "X_pca_harmony"
-        if use_rapids is True:
-            rsc.get.anndata_to_CPU(adata)  # move back to cpu
-        if adata_original:
-            adata_original.obsm["X_pca"] = adata.obsm[new_pca_key].copy()
-            adata = adata_original
-            new_pca_key = None
 
     # scVI or scANVI
     elif flavor.lower() in ["scvi", "scanvi"]:
         print(f"\t***Using {layer_counts} layer for {flavor}...")
         kws_setup = dict(layer=layer_counts, batch_key=col_sample)
-        pca_scvi = "X_scVI"
         kss = ["size_factor_key", "categorical_covariate_keys",
                "continuous_covariate_keys"]
         for k in [i for i in kss if i in kwargs]:
@@ -294,34 +324,18 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
         if "categorical_covariate_keys" not in kws_setup:
             kws_setup["categorical_covariate_keys"] = None if (
                 isinstance(col_covs, str)) else col_covs[1]
-        kts = ["max_epochs", "accelerator", "devices", "train_size",
-               "validation_size", "shuffle_set_split", "batch_size",
-               "datasplitter_kwargs", "plan_kwargs", "datamodule",
-               "benchmark", "default_root_dir",
-               "enable_checkpointing", "checkpointing_monitor",
-               "num_sanity_val_steps", "enable_model_summary",
-               "early_stopping", "early_stopping_monitor",
-               "early_stopping_min_delta", "early_stopping_patience",
-               "early_stopping_warmup_epochs", "early_stopping_mode",
-               "enable_progress_bar", "progress_bar_refresh_rate",
-               "simple_progress_bar", "logger",
-               "log_every_n_steps", "learning_rate_monitor"]
         kws_train = {}
-        for k in pd.unique([i for i in kts if i in kwargs]):
+        for k in pd.unique([i for i in KWS_SCVI if i in kwargs]):
             kws_train[k] = kwargs.pop(k)  # extract shared training arguments
         if flavor.lower() == "scanvi":  # scANVI setup
-            new_pca_key = "X_scANVI"
             kws_train_scanvi = {**kws_train}  # start with shared arguments
-            k_train = ["n_samples_per_label", "check_val_every_n_epoch",
-                       "adversarial_classifier"]
-            for k in [i for i in k_train if i in kwargs]:
+            for k in [i for i in KWS_SCANVI if i in kwargs]:
                 kws_train_scanvi[k] = kwargs.pop(k)
             unlabeled = kwargs.pop("unlabeled_category", "Unlabeled")
             if "use_minified" in kwargs:
                 kws_setup["use_minified"] = kwargs.pop(x)
-        else:  # scVI setup
-            new_pca_key = pca_scvi
-        adata = adata.copy()
+        if conserve_memory is False:
+            adata = adata.copy()
         scvi.model.SCVI.setup_anndata(adata, **kws_setup)  # setup data
         kws_train_scvi = {**kws_train}  # start with shared arguments
         for k in [i for i in ["load_sparse_tensor", "early_stopping"] if (
@@ -329,7 +343,7 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
             kws_train_scvi[k] = kwargs.pop(k)
         print(f"\t***Setting up scVI model: {kwargs}...")
         model = scvi.model.SCVI(adata, **kwargs)  # scVI or scANVI model
-        print(f"\t***Traning scVI: {kws_train_scvi}...")
+        print(f"\t***Training scVI: {kws_train_scvi}...")
         model.train(**kws_train_scvi)  # train model
         if flavor.lower() == "scanvi":
             print(f"\t***Setting up scANVI model: {kwargs}...")
@@ -364,20 +378,9 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
         # if use_rapids is True:
         #     model.to_device("cpu")
         adata.obsm[new_pca_key] = model.get_latent_representation()
-        if use_rapids is True:
-            rsc.get.anndata_to_CPU(adata)  # move back to cpu
-        if adata_original is not None:
-            adata_original.obsm[new_pca_key] = adata.obsm[new_pca_key].copy()
-            if "annotation_scanvi" in adata.obs:
-                adata_original.obs["annotation_scanvi"] = adata.obs[
-                    "annotation_scanvi"].copy()
-            for x in [q for q in adata.obs if q not in adata_original.obs]:
-                adata_original.obs[x] = adata.obs[x].copy()
-            adata = adata_original
 
     # Scanorama
     elif flavor.lower() == "scanorama":
-        new_pca_key = "X_scanorama"
         batch_cats = adata.obs[col_sample].cat.categories
         adata_list = [adata[adata.obs[col_batch] == b].copy()
                       for b in batch_cats]
@@ -387,41 +390,41 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
         for i, b in enumerate(batch_cats):
             adata.obsm["Scanorama"][adata.obs[col_batch] == b] = adata_list[
                 i].obsm[new_pca_key]
-        if use_rapids is True:
-            rsc.get.anndata_to_CPU(adata)  # move back to cpu
     else:
-        raise ValueError(f"flavor={flavor} not valid.")
+        raise ValueError(f"`flavor='{flavor}'` not valid.")
 
-    # Final Cleanup & Plot (Optional)
+    # Final Cleanup & Re-Calculate QC
+    if use_rapids is True:
+        rsc.get.anndata_to_CPU(adata)  # move back to cpu
+    if adata_original is not None:  # join new information to original object?
+        adata_original.obsm[new_pca_key] = adata.obsm[new_pca_key].copy()
+        for x in adata.obs:
+            if x not in adata_original.obs or (all(adata.obs[
+                    x] == adata_original.obs[x]) is False):
+                print(f"\t***{'Overw' if x in adata_original.obs else 'W'}"
+                      f"riting `.obs['{x}']` to original object...")
+                adata_original.obs[x] = adata.obs[x].copy()
+        for x in adata.uns:
+            print(f"\t***{'Overw' if x in adata_original.uns else 'W'}riting "
+                  f"`.uns['{x}']` to original object...")
+            adata_original.uns[x] = adata.uns[x].copy()
+        for x in [i for i in adata.var if i not in adata_original.var]:
+            print(f"\t***Joining `.var['{x}']` to original object as"
+                  f" `.var['{x}_{flavor.lower()}']`...")
+            adata_original.var[f"{x}_{flavor.lower()}"] = adata.var[x].copy()
+        adata_original.uns[f"var_{flavor}"] = adata.var.copy()
+        # adata = adata_original
+        adata.raw = adata_original
     if new_pca_key is not None:  # new PCA -> X_pca default key
         adata.obsm["X_pca_old"] = adata.obsm["X_pca"].copy()
-        print(adata.obsm)
         adata.obsm["X_pca"] = adata.obsm[new_pca_key].copy()
-    adata.X = adata.layers[layer_log1p].copy()  # set back to log1p
-    if "n_genes_by_counts" not in adata.var and (
-            redo_qc_allowed is True):  # re-perform QC if needed
-        adata = scflow.pp.perform_qc(
-            adata, plot_qc=verbose, inplace=True, use_rapids=use_rapids)
+    print(f"\n>>>Setting `.X` back to {layer_counts} layer...")
+    adata.X = adata.layers[layer_counts].copy()  # set back to counts layer
     if verbose is True:
         try:
             sc.pl.pca(adata, color=col_covs)
         except Exception as err:
-            print(f"\n\nUMAP plotting failed: {err}")
-        try:
-            adata.var["mt"] = adata.var_names.str.startswith((
-                "MT-", "Mt-", "mt-"))
-            adata.var["ribo"] = adata.var_names.str.startswith((
-                "RPS", "RPL", "rps", "rpl", "Rpl", "Rps"))
-            adata.var["hb"] = adata.var_names.str.contains(
-                r"^hb[^p]", case=False, regex=True)
-            qc_vars = [i for i in ["mt", "ribo", "hb"] if adata.var[
-                i].sum() > 0]
-            qc_new = sc.pp.calculate_qc_metrics(
-                adata, qc_vars=qc_vars, layer="counts", inplace=False)
-            adata.obs = adata.obs.join(qc_new[0], lsuffix="_original")
-            adata.var = adata.var.join(qc_new[1], lsuffix="_original")
-        except Exception as err:
-            print(f"\n\nQC plotting failed: {err}\n\n")
+            print(f"\n\n PCA plotting failed: {err}")
     return adata
 
 

@@ -11,6 +11,8 @@ import re
 from warnings import warn
 import celltypist
 import ensembl_rest
+import scvi
+from scvi.external import CellAssign
 try:
     from cell_type_mapper.cli.from_specified_markers import (
         FromSpecifiedMarkersRunner)
@@ -191,6 +193,34 @@ def annotate_by_toppgene(genes, categories=None, source_patterns=None,
         out.loc[:, "Symbols"] = out["Genes"].apply(
             lambda x: [i["Symbol"] for i in x])
     return out.drop("URL", axis=1) if "URL" in out else out
+
+
+def annotate_by_cellassign(adata, marker_gene_dict,
+                           col_celltype_new="annotation_cellassign"):
+    """
+    Annotate using CellAssign.
+
+    Adapted from docs.scvi-tools.org/en/stable/tutorials/
+        notebooks/scrna/cellassign_tutorial.html.
+    """
+    df_markers = pd.Series(marker_gene_dict).explode().rename_axis(
+        "CellType").to_frame("Gene").groupby("CellType").value_counts(
+            ).unstack(0, fill_value=0)
+    genes = df_markers.index.intersection(adata.var_names)
+    if len(genes) != df_markers.shape[0]:
+        print("Dropping genes not present in `adata`: "
+              f"{df_markers.index.difference(genes)}")
+    df_markers = df_markers.loc[genes]
+    adata_sub = adata[:, df_markers.index].copy()
+    lib_size = adata_sub.X.sum(1)
+    adata_sub.obs["size_factor"] = lib_size / np.mean(lib_size)
+    scvi.external.CellAssign.setup_anndata(
+        adata_sub, size_factor_key="size_factor")
+    model = CellAssign(adata_sub, df_markers)
+    model.train()
+    predictions = model.predict()
+    adata.obs[col_celltype_new] = predictions.idxmax(axis=1).values
+    return adata
 
 
 def run_mapbraincells(file_adata, map_my_cells_source="WHB-10X",

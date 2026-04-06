@@ -5,7 +5,7 @@ import warnings
 from warnings import warn
 from anndata import AnnData
 import scanpy as sc
-from scipy.sparse import issparse
+# from scipy.sparse import issparse
 from mudata import MuData
 import scflow
 # from scflow import Regression
@@ -77,6 +77,7 @@ class Rna(object):
                 col_batch=col_batch), **kws_integrate}
             print(f"\n***Using {kws_integrate} as integration keywords")
             adata = scflow.pp.integrate(file_path, **kws_integrate)  # Harmony
+            adata.obs = adata.obs.assign(kws_integrate=str(kws_integrate))
             integrated = True
         elif isinstance(file_path, (AnnData, MuData)):  # just load Ann/MuData
             adata = file_path.copy() if inplace is False else file_path
@@ -374,7 +375,7 @@ class Rna(object):
     def annotate(self, annotation_guide,
                  col_celltype=None, layer=None,
                  col_celltype_new=None, overwrite=False,
-                 inplace=True, **kwargs):
+                 use_cellassign=False, inplace=True, **kwargs):
         """
         Annotate a clustering result.
 
@@ -387,8 +388,6 @@ class Rna(object):
         # TODO: Overwriting columns unsophisticated (will fail in some cases)
         if col_celltype is None:
             col_celltype = self._info["col_celltype"]
-        if col_celltype_new is None:
-            col_celltype_new = f"{col_celltype}_annotated"
         if col_celltype_new in self.rna.obs and overwrite is False:
             raise ValueError(f"Cannot overwrite column {col_celltype_new} "
                              "unless overwrite=True")
@@ -408,9 +407,18 @@ class Rna(object):
                 layer=layer, col_celltype=col_celltype, **kwargs)
         # Marker Overlap Method
         elif isinstance(annotation_guide, dict):
-            results, adata = scflow.pp.annotate_by_marker_overlap(
-                adata, annotation_guide, col_celltype=col_celltype,
-                col_celltype_new=col_celltype_new, inplace=True, **kwargs)
+            if use_cellassign is False:
+                if col_celltype_new is None:
+                    col_celltype_new = "annotation_by_overlap"
+                results, adata = scflow.pp.annotate_by_marker_overlap(
+                    adata, annotation_guide, col_celltype=col_celltype,
+                    col_celltype_new=col_celltype_new, inplace=True, **kwargs)
+            else:
+                if col_celltype_new is None:
+                    col_celltype_new = "annotation_by_cellassign"
+                results, adata = scflow.pp.annotate_by_cellassign(
+                    adata, annotation_guide,
+                    col_celltype_new=col_celltype_new)
         else:
             NotImplementedError("")
         if inplace is True:
