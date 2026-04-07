@@ -52,6 +52,9 @@ KWS_SCVI = [
     "early_stopping_mode", "enable_progress_bar", "progress_bar_refresh_rate",
     "simple_progress_bar", "log_every_n_steps", "learning_rate_monitor"
 ]
+KWS_SCVI_MODEL = ["registry", "n_hidden", "n_latent", "n_layers",
+                  "dropout_rate", "dispersion", "gene_likelihood",
+                  "use_observed_lib_size", "latent_distribution"]
 KWS_SCANVI = ["n_samples_per_label", "check_val_every_n_epoch",
               "adversarial_classifier"]
 
@@ -341,8 +344,9 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
         for k in [i for i in ["load_sparse_tensor", "early_stopping"] if (
                 i in kwargs)]:
             kws_train_scvi[k] = kwargs.pop(k)
-        print(f"\t***Setting up scVI model: {kwargs}...")
-        model = scvi.model.SCVI(adata, **kwargs)  # scVI or scANVI model
+        kws_model = {i: kwargs[i] for i in kwargs if i in KWS_SCVI_MODEL}
+        print(f"\t***Setting up scVI model: {kws_model}...")
+        model = scvi.model.SCVI(adata, **kws_model)  # scVI or scANVI model
         print(f"\t***Training scVI: {kws_train_scvi}...")
         model.train(**kws_train_scvi)  # train model
         if flavor.lower() == "scanvi":

@@ -248,17 +248,15 @@ class Rna(object):
         else:
             return scflow.pp.preprocess(self.rna, inplace=False, **kws_pp)
 
-    def cluster(self, col_celltype="leiden", layer=layer_scaled,
-                resolution=1, min_dist=0.5,
-                use_highly_variable=True, inplace=True, seed=0, **kws):
+    def cluster(self, col_celltype="leiden", layer=layer_log1p,
+                resolution=1, min_dist=0.5, use_highly_variable=True,
+                inplace=True, seed=0, **kws):
         """Perform Leiden clustering."""
         if "mask_var" in kws or ("kws_pca" in kws and isinstance(kws[
                 "kws_pca"], dict) and "mask_var" in kws["kws_pca"]):
             raise ValueError("Use `use_highly_variable` argument instead of "
                              "`mask_var`.")
         adata = self.rna if inplace is True else self.rna.copy()
-        if layer is not None:
-            adata.X = adata.layers[layer].copy()
         for x in ["kws_cluster", "kws_umap"]:
             if x not in kws:
                 kws.update({x: {}})
@@ -273,8 +271,9 @@ class Rna(object):
         if kws["kws_pca"] is not False:
             kws["kws_pca"]["use_highly_variable"] = use_highly_variable
             kws["kws_pca"]["mask_var"] = use_highly_variable
-        adata = scflow.pp.cluster(adata, resolution=resolution, seed=seed,
-                                  min_dist=min_dist, inplace=True, **kws)
+        adata = scflow.pp.cluster(
+            adata, resolution=resolution, seed=seed, min_dist=min_dist,
+            layer=layer, inplace=True, **kws)  # cluster
         if self._info["col_celltype"] is None:  # update default column
             self._info["col_celltype"] = col_celltype
         if inplace is True:

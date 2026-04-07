@@ -8,19 +8,20 @@ Functions for dimensionality reduction & clustering.
 
 from warnings import warn
 import scanpy as sc
-import scipy.sparse as sp
+# import scipy.sparse as sp
+from scipy import sparse
 try:
     import rapids_singlecell as rsc
     # import cupyx
 except Exception:
     rsc = None
     warn("Cannot import rapids_singlecell.")
-import numpy as np
+# import numpy as np
 
 
 def cluster(adata, col_celltype="leiden", seed=0,
             n_comps=None, resolution=1, min_dist=0.5, spread=1,
-            kws_pca=None, kws_neighbors=None, layer="scaled",
+            kws_pca=None, kws_neighbors=None, layer="log1p",
             kws_cluster=None, kws_umap=None, plot=True,
             use_rapids=True, inplace=False):
     """Cluster omics data."""
@@ -39,30 +40,37 @@ def cluster(adata, col_celltype="leiden", seed=0,
         print("\t***Moving `.X` to GPU for `rapids`...")
         if hasattr(adata.X, "get"):
             adata.X = adata.X.get()
-        adata.X = sp.csr_matrix(np.asarray(adata.X) if hasattr(
-            adata.X, "toarray") else adata.X)
+        # adata.X = sp.csr_matrix(np.asarray(adata.X) if hasattr(
+        #     adata.X, "toarray") else adata.X)
+        if (sparse.isspmatrix_csc(adata.X) or sparse.isspmatrix_csr(
+                adata.X)) is False:
+            adata.X = sparse.csr_matrix(adata.X)
         # adata.X = cupyx.scipy.sparse.csr_matrix(adata.X)
         rsc.get.anndata_to_GPU(adata)  # move to GPU
     else:
         if layer is not None:
             adata.X = adata.layers[layer].copy()
     if kws_pca is not False:
-        print(f"\t***Calculating PCA with {n_comps} components...")
+        print(f"\t***Calculating PCA with {n_comps} components "
+              "(seed={seed})...")
         (rsc if use_rapids else sc).pp.pca(
-            adata, n_comps=n_comps, **kws_pca)  # PCA
+            adata, n_comps=n_comps, random_state=seed, **kws_pca)  # PCA
         if plot is True:
             sc.pl.pca_variance_ratio(adata, log=True)
+    else:
+        print("\t***Using pre-existing PCA as `kws_pca=False`...")
     n_n = " with " + str(kws_neighbors["n_neighbors"]) + " neighbors" if (
         "n_neighbors" in kws_neighbors) else ""
-    print(f"\t***Building neighborhood{n_n}...")
+    print(f"\t***Building neighborhood{n_n} (seed={seed})...")
     (rsc if use_rapids else sc).pp.neighbors(
         adata, random_state=seed, **kws_neighbors)  # neighbors
     print(f"\t***Embedding UMAP with minimum distance {min_dist} & "
-          f"spread {spread}...")
+          f"spread {spread} (seed={seed})...")
     (rsc if use_rapids else sc).tl.umap(
         adata, min_dist=min_dist, spread=spread,
         random_state=seed, **kws_umap)  # UMAP
-    print(f"\t***Performing Leiden clustering with resolution {resolution}...")
+    print(f"\t***Performing Leiden clustering with resolution {resolution}"
+          f" (seed={seed})...")
     (rsc if use_rapids else sc).tl.leiden(
         adata, key_added=col_celltype,
         resolution=resolution, random_state=seed, **kws_cluster)  # cluster
