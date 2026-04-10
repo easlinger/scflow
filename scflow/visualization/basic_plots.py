@@ -160,15 +160,20 @@ def plot_matrix_marsilea(adata, genes=None, col_celltype=None,
                          cell_colors=None, figsize=None):
     """Plot matrix using Marsilea (adapted `scanpy` tutorial)."""
     cells, markers = [], []
+    genes = {c: [g for g in genes[c] if g in adata.var_names] for c in genes}
     for c, ms in genes.items():
         cells += [c] * len(ms)
         markers += ms
     uni_cells = list(genes.keys())
     if cell_colors is None:
-        cell_colors = adata.uns[f"{col_celltype}_colors"] if (
-            f"{col_celltype}_colors" in adata.uns) else None
-        cell_colors = dict(zip(adata.obs[
-            col_celltype].cat.categories, cell_colors))
+        if f"{col_celltype}_colors" not in adata.uns:
+            adata.obs[col_celltype] = adata.obs[
+                col_celltype].astype("category")
+            _ = sc.pl.umap(adata, color=col_celltype,
+                           show=False, return_fig=False)
+        cell_colors = adata.uns[f"{col_celltype}_colors"]
+        cell_colors = {cell_colors[i] for i, c in enumerate(adata.obs[
+            col_celltype].cat.categories) if c in genes}
         cell_colors = [cell_colors[k] if k in cell_colors else None
                        for k in genes]
         new_colors = distinct_colors(sum([i is None for i in cell_colors]),
@@ -179,6 +184,7 @@ def plot_matrix_marsilea(adata, genes=None, col_celltype=None,
                 if cell_colors[i] is None:
                     cell_colors[i] = new_colors[cnt]
                     cnt += 1
+    print(markers)
     agg = sc.get.aggregate(adata[:, markers], by=col_celltype,
                            func=["mean", "count_nonzero"])
     agg.obs["cell_counts"] = adata.obs[col_celltype].value_counts()

@@ -25,6 +25,7 @@ import requests
 import scanpy as sc
 import pandas as pd
 import numpy as np
+from scflow.visualization import plot_matrix_marsilea
 
 
 def annotate_by_marker_overlap(adata, marker_gene_dict, col_celltype="leiden",
@@ -195,14 +196,20 @@ def annotate_by_toppgene(genes, categories=None, source_patterns=None,
     return out.drop("URL", axis=1) if "URL" in out else out
 
 
-def annotate_by_cellassign(adata, marker_gene_dict,
-                           col_celltype_new="annotation_cellassign"):
+def annotate_by_cellassign(adata, marker_gene_dict, layer="counts",
+                           col_celltype_new="annotation_cellassign",
+                           col_sample=None, covariates_categorical=None,
+                           covariates_continuous=None, plot=True, **kwargs):
     """
     Annotate using CellAssign.
 
     Adapted from docs.scvi-tools.org/en/stable/tutorials/
         notebooks/scrna/cellassign_tutorial.html.
+
+    If `plot` is a string, the figure will be saved to that
+    file path.
     """
+    figsize = kwargs.pop("figsize", (5 * len(marker_gene_dict), 5))
     df_markers = pd.Series(marker_gene_dict).explode().rename_axis(
         "CellType").to_frame("Gene").groupby("CellType").value_counts(
             ).unstack(0, fill_value=0)
@@ -212,15 +219,32 @@ def annotate_by_cellassign(adata, marker_gene_dict,
               f"{df_markers.index.difference(genes)}")
     df_markers = df_markers.loc[genes]
     adata_sub = adata[:, df_markers.index].copy()
-    lib_size = adata_sub.X.sum(1)
+    lib_size = (adata_sub.X if layer is None else adata_sub.layers[
+        layer]).sum(1)  # library size
     adata_sub.obs["size_factor"] = lib_size / np.mean(lib_size)
+    print(f"\n\n>>>Running CellAssign with layer={layer}, "
+          f"col_sample={col_sample}, "
+          f"covariates_categorical={covariates_categorical}, "
+          f"covariates_continuous={covariates_continuous}...\n\n")
     scvi.external.CellAssign.setup_anndata(
-        adata_sub, size_factor_key="size_factor")
+        adata_sub, size_factor_key="size_factor", batch_key=col_sample,
+        categorical_covariate_keys=covariates_categorical,
+        continuous_covariate_keys=covariates_continuous)
     model = CellAssign(adata_sub, df_markers)
-    model.train()
+    model.train(**kwargs)
     predictions = model.predict()
+    print(predictions)
     adata.obs[col_celltype_new] = predictions.idxmax(axis=1).values
-    return adata
+    if plot is not False:
+        try:
+            fig = plot_matrix_marsilea(
+                adata, genes=marker_gene_dict,
+                col_celltype=col_celltype_new, figsize=figsize)
+            if isinstance(plot, str):
+                fig.figure.savefig(plot, bbox_inches="tight", pad_inches=0.5)
+        except Exception as err:
+            print(f"\n\nCould not produce marker plot: {err}")
+    return predictions, adata
 
 
 def run_mapbraincells(file_adata, map_my_cells_source="WHB-10X",

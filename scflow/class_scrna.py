@@ -250,30 +250,22 @@ class Rna(object):
 
     def cluster(self, col_celltype="leiden", layer=layer_log1p,
                 resolution=1, min_dist=0.5, use_highly_variable=True,
-                inplace=True, seed=0, **kws):
+                inplace=True, seed=0, **kwargs):
         """Perform Leiden clustering."""
-        if "mask_var" in kws or ("kws_pca" in kws and isinstance(kws[
-                "kws_pca"], dict) and "mask_var" in kws["kws_pca"]):
-            raise ValueError("Use `use_highly_variable` argument instead of "
-                             "`mask_var`.")
         adata = self.rna if inplace is True else self.rna.copy()
         for x in ["kws_cluster", "kws_umap"]:
-            if x not in kws:
-                kws.update({x: {}})
-        if "kws_pca" not in kws:
-            kws["kws_pca"] = {} if self._info[
+            if x not in kwargs:
+                kwargs.update({x: {}})
+        if "kws_pca" not in kwargs:
+            kwargs["kws_pca"] = {} if self._info[
                 "integrated"] is False else False
-        else:
-            if self._info["integrated"] is True and kws[
-                    "kws_pca"] is not False:
-                raise ValueError(
-                    "Integrated datasets should use `kws_pca=False`")
-        if kws["kws_pca"] is not False:
-            kws["kws_pca"]["use_highly_variable"] = use_highly_variable
-            kws["kws_pca"]["mask_var"] = use_highly_variable
+        if self._info["integrated"] is True and kwargs[
+                "kws_pca"] is not False:
+            raise ValueError("Integrated datasets should use `kws_pca=False`")
         adata = scflow.pp.cluster(
             adata, resolution=resolution, seed=seed, min_dist=min_dist,
-            layer=layer, inplace=True, **kws)  # cluster
+            layer=layer, inplace=True,
+            use_highly_variable=use_highly_variable, **kwargs)  # cluster
         if self._info["col_celltype"] is None:  # update default column
             self._info["col_celltype"] = col_celltype
         if inplace is True:
@@ -416,8 +408,8 @@ class Rna(object):
                 if col_celltype_new is None:
                     col_celltype_new = "annotation_by_cellassign"
                 results, adata = scflow.pp.annotate_by_cellassign(
-                    adata, annotation_guide,
-                    col_celltype_new=col_celltype_new)
+                    adata, annotation_guide, layer=layer,
+                    col_celltype_new=col_celltype_new, **kwargs)
         else:
             NotImplementedError("")
         if inplace is True:
