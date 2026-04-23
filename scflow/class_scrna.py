@@ -223,8 +223,8 @@ class Rna(object):
                 if k == "violin" and isinstance(
                         kwargs[k]["genes"], dict):  # if violin + dict...
                     kwargs[k]["genes"] = functools.reduce(
-                        lambda i, j: i + j, [genes[k] for k in kwargs[
-                            k]["genes"]])  # ...dict -> list of genesx
+                        lambda i, j: i + j, [kwargs[k]["genes"][
+                            k] for k in kwargs[k]["genes"]])  # ...dict->list
             if k in colors_plots and "color" not in kwargs[k]:  # if needed...
                 kwargs[k].update({"color": color})  # ...specify grouping
             if k in gby and "col_celltype" not in kwargs[k]:
@@ -235,7 +235,6 @@ class Rna(object):
                     k]["dendrogram"] is True and "col_celltype" in kwargs[k]:
                 adata = adata.copy()
                 sc.tl.dendrogram(adata, kwargs[k]["col_celltype"])
-            print(kwargs[k])
             fig[k] = f_x(adata, title=ttl, **kwargs[k])
         if return_fig is True:
             return fig
