@@ -213,10 +213,9 @@ def plot_matrix_marsilea(adata, genes=None, col_celltype=None,
 def plot_violin(adata, genes=None, col_celltype=None,
                 col_wrap=True, title=None,
                 fontsize=None, font="serif", figsize=None, **kwargs):
-    """Plot a gene expression violin plot."""
-    if isinstance(genes, str):
-        genes = [genes]
-    genes = list(genes)
+    """Plot violins for gene expression (or other `.obs`/`.var`)."""
+    genes = [genes] if isinstance(genes, str) else dict(genes) if isinstance(
+        genes, dict) else list(genes)
     fontsize = {} if fontsize is None else fontsize
     fontsize = {**{"title": "large", "subtitle": 10,
                    "x": 8, "y": 8}, **fontsize}
@@ -226,8 +225,9 @@ def plot_violin(adata, genes=None, col_celltype=None,
     if title is not None and col_wrap is None:
         col_wrap = 1  # workaround so title displays
     if col_wrap is True:
-        col_wrap = scflow.pl.square_grid(genes)[1]
-    if col_wrap not in [None, False]:
+        col_wrap = False if isinstance(
+            genes, dict) else scflow.pl.square_grid(genes)[1]
+    if col_wrap not in [None, False] or isinstance(genes, dict):
         kws_fig = {"figsize": figsize, "squeeze": False}
         kss = ["sharex", "sharey", "width_ratios", "height_ratios",
                "subplot_kw", "gridspec_kw"]
@@ -239,18 +239,35 @@ def plot_violin(adata, genes=None, col_celltype=None,
                 kwargs["gridspec_kw"] is None) else kws_fig["gridspec_kw"]
             for x in gss:
                 kws_fig["gridspec_kw"][x] = kwargs.pop(x, None)
-        fig, axes = plt.subplots(round(len(genes) / col_wrap),
-                                 col_wrap, **kws_fig)  # facet grid setup
-        kws = {**kwargs, "show": False}  # to avoid showing during iterations
-        for i, g in zip(axes.flatten(), genes):  # iterate components to plot
-            sc.pl.violin(adata, g, col_celltype, ax=i, **kws)
-        i.set_title(g)
-        i.title.set_fontsize(fontsize["subtitle"])
-        for q in ["x", "y"]:
-            i.tick_params(axis=q, labelsize=fontsize[q], labelfontfamily=font)
-        if len(axes.flatten()) > len(genes):
-            for ax in axes.flatten()[len(genes):]:  # turn off unused axes
-                ax.set_visible(False)
+        if isinstance(genes, (list, np.ndarray, tuple)):  # flat list of genes
+            fig, axes = plt.subplots(round(len(genes) / col_wrap),
+                                     col_wrap, **kws_fig)  # facet grid setup
+            kws = {**kwargs, "show": False}  # avoid showing during iterations
+            for i, g in zip(axes.flatten(), genes):  # iterate components
+                sc.pl.violin(adata, g, col_celltype, ax=i, **kws)
+                i.set_title(g)
+                i.title.set_fontsize(fontsize["subtitle"])
+                for q in ["x", "y"]:
+                    i.tick_params(axis=q, labelsize=fontsize[q],
+                                  labelfontfamily=font)
+            if len(axes.flatten()) > len(genes):  # turn off unused axes
+                for ax in axes.flatten()[len(genes):]:
+                    ax.set_visible(False)
+        else:  # dictionary of genes
+            fig, axes = plt.subplots(len(genes), max([len(genes[
+                k]) for k in genes]), **kws_fig)  # facet grid setup
+            kws = {**kwargs, "show": False}  # avoid showing during iterations
+            for j, k in enumerate(genes):  # iterate gene groups
+                for i, g in zip(axes[j], genes[k]):  # iterate genes
+                    sc.pl.violin(adata, g, col_celltype, ax=i, **kws)
+                    i.set_title(f"{k}: {g}")
+                    i.title.set_fontsize(fontsize["subtitle"])
+                    for q in ["x", "y"]:
+                        i.tick_params(axis=q, labelsize=fontsize[q],
+                                      labelfontfamily=font)
+                if len(axes[j]) > len(genes[k]):  # turn off unused axes
+                    for ax in axes[j][len(genes[k]):]:
+                        ax.set_visible(False)
     else:
         fig = sc.pl.violin(adata, genes, col_celltype, **kwargs)
         fig = plt.gcf()

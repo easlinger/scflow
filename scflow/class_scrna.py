@@ -159,7 +159,9 @@ class Rna(object):
         """
         if by_group not in [None, False]:  # multiple plots by subsets
             outs = {}
-            for g in self.rna.obs[by_group].unique():
+            for i, g in enumerate(self.rna.obs[by_group].unique()):
+                pct = i / len(self.rna.obs[by_group].unique()) * 100
+                print(f"\n\n***Plotting group {g} ({pct:.1f}%)...")
                 outs[g] = self.plot(
                     kind=kind, col_celltype=col_celltype, genes=genes,
                     layer=layer, color=color, figsize=figsize,
@@ -220,11 +222,11 @@ class Rna(object):
             if k in genes_plots:  # if needed...
                 if "genes" not in kwargs[k]:
                     kwargs[k].update({"genes": genes})  # ...specify "genes"
-                if k == "violin" and isinstance(
-                        kwargs[k]["genes"], dict):  # if violin + dict...
-                    kwargs[k]["genes"] = functools.reduce(
-                        lambda i, j: i + j, [kwargs[k]["genes"][
-                            k] for k in kwargs[k]["genes"]])  # ...dict->list
+                # if k == "violin" and isinstance(
+                #         kwargs[k]["genes"], dict):  # if violin + dict...
+                #     kwargs[k]["genes"] = functools.reduce(
+                #         lambda i, j: i + j, [kwargs[k]["genes"][
+                #             k] for k in kwargs[k]["genes"]])
             if k in colors_plots and "color" not in kwargs[k]:  # if needed...
                 kwargs[k].update({"color": color})  # ...specify grouping
             if k in gby and "col_celltype" not in kwargs[k]:
