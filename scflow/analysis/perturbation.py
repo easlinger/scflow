@@ -314,7 +314,6 @@ def run_deg_edgr(adata, col_condition, col_covariate=None, formula=None,
     edgr = pt.tl.EdgeR(adata, design=formula, layer=layer)  # set up edgeR
     edgr.fit()  # fit edgeR
     if col_covariate is not None:  # contrasts
-        # Infer `key_control` or `key_treatment` If Needed
         # Run Contrasts
         res_df = edgr.test_contrasts(edgr.contrast(
             column=col_condition, baseline=key_control,
@@ -357,6 +356,9 @@ def run_deg_pydeseq(adata, col_condition, col_covariate=None, n_top_vars=15,
                     threshold_l2fc=0, layer="counts", figsize=None, **kwargs):
     """Run PyDESeq2 differential gene expression testing."""
     figs = {}
+    if col_covariate is None:
+        key_control, key_treatment = [{col_condition: x} if isinstance(
+            x, str) else x for x in [key_control, key_treatment]]
     key_control_cov, key_treatment_cov = key_control.pop(
         col_covariate, None), key_treatment.pop(col_covariate, None)
     key_control, key_treatment = key_control[col_condition], key_treatment[
@@ -390,27 +392,31 @@ def run_deg_pydeseq(adata, col_condition, col_covariate=None, n_top_vars=15,
         groups_to_compare=to_compare)
     print(res_df_contr)
     pds2.plot_volcano(res_df_contr, log2fc_thresh=threshold_l2fc)
-    pds2b = pt.tl.PyDESeq2(adata=adata, design=formula_int)
-    edgr = pt.tl.EdgeR(adata, design=formula, layer=layer)
-    edgr.plot_multicomparison_fc(res_df_contr, figsize=figsize)
-    ctl = {col_condition: key_control, col_covariate: key_control_cov}
-    txs = {col_condition: key_treatment, col_covariate: key_treatment_cov}
-    mix1 = {col_condition: key_treatment, col_covariate: key_control_cov}
-    mix2 = {col_condition: key_control, col_covariate: key_treatment_cov}
-    interaction_contrast = (pds2b.cond(**txs) - pds2b.cond(**mix1)) - (
-        pds2b.cond(**ctl) - pds2b.cond(**mix2))
-    print(f"Interaction:\n{interaction_contrast}")
-    # interaction_res_df = pds2b.test_contrasts(interaction_contrast)
-    gen_ctr = pds2b.cond(**{col_covariate: key_treatment_cov}) - pds2.cond(
-        **{col_covariate: key_control_cov})
-    print(gen_ctr)
-    # return pds2, interaction_contrast, gen_ctr
-    interaction_res_df = pds2b.test_contrasts(
-        {f"{key_treatment}_specific": interaction_contrast,
-         "General": gen_ctr})
-    print(interaction_res_df)
-    pds2b.plot_volcano(interaction_res_df, log2fc_thresh=threshold_l2fc)
-    edgr.plot_multicomparison_fc(interaction_res_df, figsize=figsize)
+    if col_covariate is not None:
+        pds2b = pt.tl.PyDESeq2(adata=adata, design=formula_int)
+        edgr = pt.tl.EdgeR(adata, design=formula, layer=layer)
+        edgr.plot_multicomparison_fc(res_df_contr, figsize=figsize)
+        ctl = {col_condition: key_control, col_covariate: key_control_cov}
+        txs = {col_condition: key_treatment, col_covariate: key_treatment_cov}
+        mix1 = {col_condition: key_treatment, col_covariate: key_control_cov}
+        mix2 = {col_condition: key_control, col_covariate: key_treatment_cov}
+        interaction_contrast = (pds2b.cond(**txs) - pds2b.cond(**mix1)) - (
+            pds2b.cond(**ctl) - pds2b.cond(**mix2))
+        # interaction_res_df = pds2b.test_contrasts(interaction_contrast)
+        gen_ctr = pds2b.cond(**{
+            col_covariate: key_treatment_cov}) - pds2.cond(
+                **{col_covariate: key_control_cov})
+        print(gen_ctr)
+        # return pds2, interaction_contrast, gen_ctr
+        interaction_res_df = pds2b.test_contrasts(
+            {f"{key_treatment}_specific": interaction_contrast,
+             "General": gen_ctr})
+        print(interaction_res_df)
+        pds2b.plot_volcano(interaction_res_df, log2fc_thresh=threshold_l2fc)
+        edgr.plot_multicomparison_fc(interaction_res_df, figsize=figsize)
+        print(f"Interaction:\n{interaction_contrast}")
+    else:
+        interaction_contrast, res_df_contr = None, None
     # return res_df, res_df_contr, interaction_res_df, pds2, pds2b, figs
     return res_df, res_df_contr, pds2, figs
 

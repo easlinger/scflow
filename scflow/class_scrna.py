@@ -3,6 +3,7 @@
 
 import warnings
 from warnings import warn
+import functools
 from anndata import AnnData
 import scanpy as sc
 # from scipy.sparse import issparse
@@ -169,6 +170,16 @@ class Rna(object):
         adata = self.rna
         if subset is not None:
             adata = adata[subset]
+        genes = [genes] if isinstance(genes, str) else genes
+        genes_o = functools.reduce(lambda i, j: i + j, [genes[
+            k] for k in genes]) if isinstance(genes, dict) else list(genes)
+        genes = {k[0]: [i for i in k[1] if i in adata.var_names]
+                 for k in genes.items()} if isinstance(genes, dict) else [
+                     i for i in genes if i in adata.var_names]
+        genes_n = functools.reduce(lambda i, j: i + j, [genes[
+            k] for k in genes]) if isinstance(genes, dict) else list(genes)
+        if len(set(genes_o).difference(genes_n)) > 0:
+            warn(f"Genes not found: {set(genes_o).difference(set(genes_n))}")
         if col_celltype is None:
             col_celltype = self._info["col_celltype"]
         gby = ["matrix", "violin", "stacked_violin", "heat", "dot"]
@@ -206,8 +217,14 @@ class Rna(object):
             f_x = scflow.get_plot_fx(k)  # get the right plot function
             if "layer" not in kwargs[k]:
                 kwargs[k]["layer"] = layer
-            if k in genes_plots and "genes" not in kwargs[k]:  # if needed...
-                kwargs[k].update({"genes": genes})  # ...specify "genes"
+            if k in genes_plots:  # if needed...
+                if "genes" not in kwargs[k]:
+                    kwargs[k].update({"genes": genes})  # ...specify "genes"
+                if k == "violin" and isinstance(
+                        kwargs[k]["genes"], dict):  # if violin + dict...
+                    kwargs[k]["genes"] = functools.reduce(
+                        lambda i, j: i + j, [genes[k] for k in kwargs[
+                            k]["genes"]])  # ...dict -> list of genesx
             if k in colors_plots and "color" not in kwargs[k]:  # if needed...
                 kwargs[k].update({"color": color})  # ...specify grouping
             if k in gby and "col_celltype" not in kwargs[k]:
@@ -218,6 +235,7 @@ class Rna(object):
                     k]["dendrogram"] is True and "col_celltype" in kwargs[k]:
                 adata = adata.copy()
                 sc.tl.dendrogram(adata, kwargs[k]["col_celltype"])
+            print(kwargs[k])
             fig[k] = f_x(adata, title=ttl, **kwargs[k])
         if return_fig is True:
             return fig

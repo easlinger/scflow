@@ -38,19 +38,22 @@ def square_grid(n_subs):
     """Create a square grid for plotting."""
     n_subs = len(n_subs) if isinstance(n_subs, (
         list, tuple, np.ndarray, pd.Series)) else n_subs
-    root = int(math.sqrt(n_subs))
-    rows, cols = root, root
-    while rows * cols < n_subs:
-        if cols <= rows:
-            cols += 1
-        else:
-            rows += 1
+    if n_subs == 1:
+        return (1, 1)
+    best = None
+    for cols in range(1, n_subs + 1):
+        rows = math.ceil(n_subs / cols)
+        empty = rows * cols - n_subs
+        if empty == cols - 1:
+            continue  # avoid single subplot row
+        score = abs(rows - cols)  # prefer square-ish grids
+        if best is None or (empty, score) < (best[0], best[1]):
+            best = (empty, score, rows, cols)
+    rows, cols = best[2], best[3]
     if rows == 1 and cols > 2:
         rows, cols = 2, math.ceil(n_subs / 2)
     if cols == 1 and rows > 2:
         cols, rows = 2, math.ceil(n_subs / 2)
-    if rows == 2 and cols == 2 and n_subs == 3:
-        rows, cols = 1, 3
     return rows, cols
 
 
@@ -184,7 +187,6 @@ def plot_matrix_marsilea(adata, genes=None, col_celltype=None,
                 if cell_colors[i] is None:
                     cell_colors[i] = new_colors[cnt]
                     cnt += 1
-    print(markers)
     agg = sc.get.aggregate(adata[:, markers], by=col_celltype,
                            func=["mean", "count_nonzero"])
     agg.obs["cell_counts"] = adata.obs[col_celltype].value_counts()
