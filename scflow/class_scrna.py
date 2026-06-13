@@ -177,7 +177,8 @@ class Rna(object):
             k] for k in genes]) if isinstance(genes, dict) else list(genes)
         genes = {k[0]: [i for i in k[1] if i in adata.var_names]
                  for k in genes.items()} if isinstance(genes, dict) else [
-                     i for i in genes if i in adata.var_names]
+                     i for i in genes if (
+                         i in adata.var_names or i in adata.obs)]
         genes_n = functools.reduce(lambda i, j: i + j, [genes[
             k] for k in genes]) if isinstance(genes, dict) else list(genes)
         if len(set(genes_o).difference(genes_n)) > 0:

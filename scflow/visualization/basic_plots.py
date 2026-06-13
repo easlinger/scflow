@@ -38,9 +38,10 @@ def square_grid(n_subs):
     """Create a square grid for plotting."""
     n_subs = len(n_subs) if isinstance(n_subs, (
         list, tuple, np.ndarray, pd.Series)) else n_subs
-    if n_subs == 1:
+    if n_subs <= 1:
         return (1, 1)
-    best = None
+    if n_subs == 2:
+        return (2, 1)
     for cols in range(1, n_subs + 1):
         rows = math.ceil(n_subs / cols)
         empty = rows * cols - n_subs
