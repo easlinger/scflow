@@ -41,7 +41,10 @@ def square_grid(n_subs):
     if n_subs <= 1:
         return (1, 1)
     if n_subs == 2:
-        return (2, 1)
+        return (1, 2)
+    if n_subs == 3:
+        return (1, 3)
+    best = None
     for cols in range(1, n_subs + 1):
         rows = math.ceil(n_subs / cols)
         empty = rows * cols - n_subs
@@ -50,6 +53,8 @@ def square_grid(n_subs):
         score = abs(rows - cols)  # prefer square-ish grids
         if best is None or (empty, score) < (best[0], best[1]):
             best = (empty, score, rows, cols)
+    if best is None or (empty, score) < (best[0], best[1]):
+        best = (empty, score, rows, cols)
     rows, cols = best[2], best[3]
     if rows == 1 and cols > 2:
         rows, cols = 2, math.ceil(n_subs / 2)

@@ -172,7 +172,7 @@ class Rna(object):
         adata = self.rna
         if subset is not None:
             adata = adata[subset]
-        genes = [genes] if isinstance(genes, str) else genes
+        genes = [genes] if isinstance(genes, str) or genes is None else genes
         genes_o = functools.reduce(lambda i, j: i + j, [genes[
             k] for k in genes]) if isinstance(genes, dict) else list(genes)
         genes = {k[0]: [i for i in k[1] if i in adata.var_names]
