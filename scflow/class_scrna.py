@@ -53,7 +53,6 @@ class Rna(object):
             kws_integrate (dict or list, optional): Dictionary of
                 keyword arguments to pass to Harmony integration
                 function (if passed list or dict to `file_path`).
-
         """
         if kws_read is None:
             kws_read = {}
@@ -173,14 +172,15 @@ class Rna(object):
         if subset is not None:
             adata = adata[subset]
         genes = [genes] if isinstance(genes, str) or genes is None else genes
-        genes_o = functools.reduce(lambda i, j: i + j, [genes[
+        genes_o = functools.reduce(lambda i, j: list(i) + list(j), [genes[
             k] for k in genes]) if isinstance(genes, dict) else list(genes)
         genes = {k[0]: [i for i in k[1] if i in adata.var_names]
                  for k in genes.items()} if isinstance(genes, dict) else [
                      i for i in genes if (
                          i in adata.var_names or i in adata.obs)]
-        genes_n = functools.reduce(lambda i, j: i + j, [genes[
-            k] for k in genes]) if isinstance(genes, dict) else list(genes)
+        genes_n = functools.reduce(lambda i, j: list(i) + list(j), [
+            genes[k] for k in genes]) if isinstance(
+                genes, dict) else list(genes)
         if len(set(genes_o).difference(genes_n)) > 0:
             warn(f"Genes not found: {set(genes_o).difference(set(genes_n))}")
         if col_celltype is None:
