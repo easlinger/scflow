@@ -80,7 +80,8 @@ class Rna(object):
             adata.obs = adata.obs.assign(kws_integrate=str(kws_integrate))
             integrated = True
         elif isinstance(file_path, (AnnData, MuData)):  # just load Ann/MuData
-            adata = file_path.copy() if inplace is False else file_path
+            adata = file_path.copy() if inplace is False and isinstance(
+                file_path, AnnData) else file_path
             if "var_names" in kws_read:
                 if assay is not None:
                     if adata[assay].var.index.names[0] != kws_read[
@@ -111,9 +112,22 @@ class Rna(object):
                  "`self._info['integrated'] = True` to avoid"
                  " recalculating PCA when using `self.cluster()`")
         self.assay = assay
-        self.rna = adata
+        self._rna = None
+        self._adata = adata
         # self._adata = adata
         # self._update_rna_from_adata()
+
+    @property
+    def rna(self):
+        return self.adata if self.assay is None else self.adata[self.assay]
+
+    @rna.setter
+    def rna(self, value):
+        if self.assay is not None:
+            self.adata.mod[self.assay] = value
+            self.adata.update()
+        else:
+            self.adata = value
 
     # @property
     # def adata(self):

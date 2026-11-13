@@ -12,6 +12,7 @@ import warnings
 import matplotlib.pyplot as plt
 import seaborn as sns
 import scanpy as sc
+# import muon
 # import scipy.sparse as sp
 from warnings import warn
 try:
@@ -34,7 +35,7 @@ if rmm:
     cupy.cuda.set_allocator(rmm_cupy_allocator)
 
 
-def preprocess(adata, min_max_genes=None, min_max_cells=None,
+def preprocess(anndata_object, min_max_genes=None, min_max_cells=None,
                col_sample=None, col_batch=None,
                layer_counts="counts", layer_log1p="log1p",
                layer_scaled="scaled", doublet_detection=False,
@@ -42,7 +43,7 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
                vars_regress_out=None, target_sum=1e4,
                exclude_highly_expressed=False, n_top_genes=2000, max_mt=None,
                zero_center=True, max_value=None, plot_qc=True,
-               use_rapids=True, inplace=True):
+               use_rapids=True, assay=None, inplace=True):
     """Filter, normalize, and perform QC on scRNA-seq data."""
     if rsc is None:
         use_rapids = False
@@ -52,7 +53,8 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
             raise ValueError(
                 "`min_max_genes, if a string, must be 'min' or 'max'")
     if inplace is False:
-        adata = adata.copy()
+        anndata_object = anndata_object.copy()
+    adata = anndata_object[assay] if assay is not None else anndata_object
     if layer_counts not in adata.layers:
         adata.layers[layer_counts] = adata.X.copy()  # assume is counts layer
         warnings.warn("`layer_counts` not found in `adata.layers`. "
@@ -62,6 +64,8 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
         adata.X = adata.layers[layer_counts].copy()  # ensure using counts
     try:
         adata.var_names_make_unique()
+        if assay is not None:
+            anndata_object.update()
     except Exception as err:
         print(err)
     try:
@@ -90,11 +94,15 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
             print(f"\t\tfiltered out {adata.obs.shape[0] - sum(keep_minc)} "
                   f"cells with less than {min_max_counts[0]} counts...")
             adata = adata[keep_minc].copy()
+            if assay is not None:
+                anndata_object.update()
         if min_max_counts[1] is not None:
             keep_maxc = adata.obs["total_counts"] <= min_max_counts[1]
             print(f"\t\tfiltered out {adata.obs.shape[0] - sum(keep_maxc)} "
                   f"cells with more than {min_max_counts[1]} counts...")
             adata = adata[keep_maxc].copy()
+            if assay is not None:
+                anndata_object.update()
     if min_max_genes is not None:  # filter cells by gene counts
         print("\t***Filtering cells by genes...")
         # if min_max_genes is True or isinstance(min_max_genes, str):
@@ -107,8 +115,12 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
         #             min_max_genes = [None, min_max_genes[1]]
         if min_max_genes[0] is not None:
             pkg.pp.filter_cells(adata, min_genes=min_max_genes[0])
+            if assay is not None:
+                anndata_object.update()
         if min_max_genes[1] is not None:
             pkg.pp.filter_cells(adata, max_genes=min_max_genes[1])
+            if assay is not None:
+                anndata_object.update()
     if min_max_cells is not None:  # filter genes by cell counts
         print("\t***Filtering genes by cells...")
         # if min_max_cells is True or isinstance(min_max_cells, str):
@@ -121,13 +133,19 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
         #             min_max_cells = [None, min_max_cells[1]]
         if min_max_cells[0] is not None:
             pkg.pp.filter_genes(adata, min_cells=min_max_cells[0])
+            if assay is not None:
+                anndata_object.update()
         if min_max_cells[1] is not None:
             pkg.pp.filter_genes(adata, max_cells=min_max_cells[1])
+            if assay is not None:
+                anndata_object.update()
     if max_mt is not None:  # filter by maximum mitochondrial count
         dmt = sum(adata.obs["pct_counts_mt"] > max_mt)
         dmt = f"{dmt} / {adata.obs.shape[0]} total cells"
         print(f"\t***Filtering by mitochondrial gene content ({dmt})...")
         adata = adata[adata.obs["pct_counts_mt"] <= max_mt]
+        if assay is not None:
+            anndata_object.update()
 
     # Doublet Detection
     if doublet_detection in [True, "drop"]:
@@ -152,6 +170,8 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
                 "predicted_doublet"]].copy()  # drop doublets
         # if use_rapids is True:
         #     rsc.get.anndata_to_GPU(adata)
+        if assay is not None:
+            anndata_object.update()
 
     # Normalization & Regress Out (Optional)
     if normalize is True:
@@ -186,7 +206,12 @@ def preprocess(adata, min_max_genes=None, min_max_cells=None,
 
     if use_rapids is True:
         rsc.get.anndata_to_CPU(adata)  # move back to cpu
-    return adata
+    if assay is not None:
+        anndata_object.update()
+        anndata_object.mod[assay] = adata
+    else:
+        anndata_object = adata
+    return anndata_object
 
 
 def perform_qc(adata, qc_vars=None, plot_qc=True, col_sample=None,

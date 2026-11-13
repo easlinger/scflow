@@ -165,7 +165,7 @@ def plot_matrix(adata, genes=None, col_celltype=None,
 
 
 def plot_matrix_marsilea(adata, genes=None, col_celltype=None,
-                         cmap="coolwarm", vcenter=0,
+                         cmap="coolwarm", dendrogram=True, vcenter=0,
                          cell_colors=None, figsize=None):
     """Plot matrix using Marsilea (adapted `scanpy` tutorial)."""
     cells, markers = [], []
@@ -210,7 +210,8 @@ def plot_matrix_marsilea(adata, genes=None, col_celltype=None,
     mpp.add_top(mp.Chunk(uni_cells, fill_colors=cell_colors, rotation=90))
     mpp.add_left(mp.Numbers(agg_cell_counts, color="#EEB76B", label="Count"),
                  pad=0.2)
-    mpp.add_dendrogram("right", pad=0.1)
+    if dendrogram is True:
+        mpp.add_dendrogram("right", pad=0.1)
     mpp.add_legends()
     mpp.render()
     return mpp

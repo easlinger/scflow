@@ -19,14 +19,15 @@ except Exception:
 import numpy as np
 
 
-def cluster(adata, col_celltype="leiden", seed=0,
+def cluster(anndata_object, col_celltype="leiden", seed=0, assay=None,
             n_comps=None, resolution=1, min_dist=0.5, spread=1,
             kws_pca=None, kws_neighbors=None, layer="log1p",
             kws_cluster=None, kws_umap=None, plot=True,
             use_rapids=True, use_highly_variable=True, inplace=False):
     """Cluster omics data."""
     if inplace is False:
-        adata = adata.copy()
+        anndata_object = anndata_object.copy()
+    adata = anndata_object[assay] if assay is not None else anndata_object
     use_rapids = rsc is not None and use_rapids is True
     kws_pca, kws_neighbors, kws_cluster, kws_umap = [
         {} if x is None else {**x} if isinstance(x, dict) else x for x in [
@@ -75,6 +76,8 @@ def cluster(adata, col_celltype="leiden", seed=0,
     n_n = " with " + str(kws_neighbors["n_neighbors"]) + " neighbors" if (
         "n_neighbors" in kws_neighbors) else ""
     print(f"\t***Building neighborhood{n_n} (seed={seed})...")
+    if assay is not None:
+        anndata_object.update()
     (rsc if use_rapids else sc).pp.neighbors(
         adata, random_state=seed, **kws_neighbors)  # neighbors
     print(f"\t***Embedding UMAP with minimum distance {min_dist} & "
@@ -90,4 +93,9 @@ def cluster(adata, col_celltype="leiden", seed=0,
     if use_rapids is True:
         # adata.X = adata.X.get()
         rsc.get.anndata_to_CPU(adata)  # move back to CPU
-    return adata
+    if assay is not None:
+        anndata_object.update()
+        anndata_object.mod[assay] = adata
+    else:
+        anndata_object = adata
+    return anndata_object
