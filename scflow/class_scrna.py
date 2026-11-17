@@ -81,7 +81,7 @@ class Rna(object):
             integrated = True
         elif isinstance(file_path, (AnnData, MuData)):  # just load Ann/MuData
             adata = file_path.copy() if inplace is False and isinstance(
-                file_path, AnnData) else file_path
+                file_path, (AnnData, MuData)) else file_path
             if "var_names" in kws_read:
                 if assay is not None:
                     if adata[assay].var.index.names[0] != kws_read[
@@ -260,7 +260,7 @@ class Rna(object):
         """Get gene expression matrix."""
         adata = self.rna if subset is None else self.rna[subset]
         genes = [genes] if isinstance(genes, str) else genes
-        g_original = list(genes)
+        g_original = list(genes) if genes is not None else genes
         genes = None if genes is None else list(set(
             genes).intersection(adata.var_names))  # valid gene names
         if g_original is not None and len(g_original) > len(genes):

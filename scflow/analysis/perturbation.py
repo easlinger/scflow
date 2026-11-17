@@ -26,7 +26,9 @@ def analyze_perturbation_distance(adata, col_condition, key_pca="X_pca",
                                   show_progressbar=True, kwargs_plot=None,
                                   inplace=True, **kwargs):
     """Analyze the perturbation effect of treatment(s)."""
-    distance = pt.tl.Distance("mse", obsm_key="X_pca")
+    distance = pt.tl.Distance("mse", obsm_key=key_pca)
+    if inplace is False:
+        adata = adata.copy()
     if layer is not None:
         warn(f"Changing layer to {layer}...")
         adata.X = adata.layers[layer].copy()  # change layer
@@ -164,7 +166,7 @@ def analyze_composition_tree(adata, col_celltype, col_covariates, col_sample,
                              col_celltype_hierarchy=None,
                              dendrogram_key=None, est_fdr=0.05,
                              model_type="cell_level", formula=None,
-                             reference_cell_type="automatric",
+                             reference_cell_type="automatic",
                              inplace=False, seed=0, figsize=None, **kwargs):
     """Analyze shifts in cell type composition with Tasccoda."""
     if inplace is False:
@@ -294,6 +296,9 @@ def run_deg_edgr(adata, col_condition, col_covariate=None, formula=None,
     if key_treatment is None and key_control is None:
         raise ValueError("Specify `key_treatment` or `key_control`.")
     if key_treatment is None:
+        if key_control is None:
+            raise ValueError("You must specify `key_control` or "
+                             "`key_treatment`")
         key_treatment = [i for i in adata.obs[
             col_condition].unique() if i != key_control]
         if len(key_treatment) != 1:
@@ -301,7 +306,7 @@ def run_deg_edgr(adata, col_condition, col_covariate=None, formula=None,
         key_treatment = key_treatment[0]
     if key_control is None:
         key_control = [i for i in adata.obs[
-            col_condition].unique() if i != key_control]
+            col_condition].unique() if i != key_treatment]
         if len(key_control) != 1:
             raise ValueError("Specify `key_control` if >2 categories.")
         key_control = key_control[0]
@@ -370,9 +375,9 @@ def run_deg_pydeseq(adata, col_condition, col_covariate=None, n_top_vars=15,
     if formula is None:
         formula = "~" + " + ".join([col_condition, col_covariate]) if (
             col_covariate is not None) else f"~{col_condition}"
-        if col_covariate is not None:
-            formula_int = formula + " + " + "*".join([
-                col_condition, col_covariate])
+    if col_covariate is not None:
+        formula_int = formula + " + " + "*".join([
+            col_condition, col_covariate])
     print(f"***Using formula: {formula}...")
     if col_celltype is not None:  # create pseudo-bulk if needed
         print("***Pseudo-bulking...")
@@ -394,6 +399,7 @@ def run_deg_pydeseq(adata, col_condition, col_covariate=None, n_top_vars=15,
     pds2.plot_volcano(res_df_contr, log2fc_thresh=threshold_l2fc)
     if col_covariate is not None:
         pds2b = pt.tl.PyDESeq2(adata=adata, design=formula_int)
+        pds2b.fit()
         edgr = pt.tl.EdgeR(adata, design=formula, layer=layer)
         edgr.plot_multicomparison_fc(res_df_contr, figsize=figsize)
         ctl = {col_condition: key_control, col_covariate: key_control_cov}
@@ -460,7 +466,8 @@ def run_dialogue_mcp(adata, col_celltype, col_counts="total_counts",
         adata.X = adata.layers[layer].copy()
     if col_sample is not None:  # only cell types represented in all samples
         isecs = pd.crosstab(adata.obs[col_celltype], adata.obs[col_sample])
-        adata[adata.obs[col_celltype].isin(isecs[isecs.T.all()].index.values)]
+        adata = adata[adata.obs[col_celltype].isin(
+            isecs[isecs.T.all()].index.values)]
     d_l = pt.tl.Dialogue(sample_id=col_sample, celltype_key=col_celltype,
                          n_counts_key=col_counts, n_mpcs=n_mpcs)
     cols_mcp = [f"mcp_{i}" for i in np.arange(n_mpcs)]

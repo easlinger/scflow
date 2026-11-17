@@ -197,7 +197,7 @@ def plot_matrix_marsilea(adata, genes=None, col_celltype=None,
             _ = sc.pl.umap(adata, color=col_celltype,
                            show=False, return_fig=False)
         cell_colors = adata.uns[f"{col_celltype}_colors"]
-        cell_colors = {cell_colors[i] for i, c in enumerate(adata.obs[
+        cell_colors = {c: cell_colors[i] for i, c in enumerate(adata.obs[
             col_celltype].cat.categories) if c in genes}
         cell_colors = [cell_colors[k] if k in cell_colors else None
                        for k in genes]

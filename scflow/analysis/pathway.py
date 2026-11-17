@@ -83,6 +83,7 @@ def run_decoupler_ulm(adata, col_celltype, col_condition=None,
             adata[adata.obs[col_condition] == g], col_celltype,
             resource=resource, species=species, top_n=top_n, query=query,
             plot=False, inplace=True) for g in grps]))
+        fig = None
         if plot is True:
             cmap = kws_fig.pop("cmap", "RdBu_r")
             gridspec_kws, gks = {}, ["top", "bottom", "left",
