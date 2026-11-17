@@ -1,10 +1,10 @@
 [build-system]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
-requires = ["hatchling"]
 
 [project]
 name = "scflow"
-version = "0.0.0"
+dynamic = ["version"]
 description = "Process and analyze scRNA-seq and spatial omics data."
 readme = "README.md"
 requires-python = ">=3.11"
