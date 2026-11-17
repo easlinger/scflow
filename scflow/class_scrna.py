@@ -262,13 +262,13 @@ class Rna(object):
         genes = [genes] if isinstance(genes, str) else genes
         if genes is None:
             genes = list(adata.var_names)
-        genes = pd.unique(genes)
-        g_original = list(genes)
-        if len(genes) < len(adata.var_names):
-            genes = list(set(genes).intersection(
-                adata.var_names))  # valid gene names
-            warn(f"Genes not found: {set(genes).difference(set(g_original))}")
-        # print(g_original)
+        else:
+            genes = pd.unique(genes)
+            g_orig = list(genes)
+            genes = [gene for gene in genes if (
+                gene in adata.var_names)]  # valid gene names
+            if len(genes) < len(g_orig):
+                warn(f"Genes not found: {set(g_orig).difference(set(genes))}")
         expr = adata[:, genes]
         expr = expr.X if layer is None else expr.layers[layer].copy()
         if hasattr(expr, "toarray"):
