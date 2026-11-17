@@ -148,7 +148,7 @@ def plot_matrix(adata, genes=None, col_celltype=None,
     show_later = fontsize is not None or kws_gs is not None and (
         "show" not in kwargs or kwargs["show"] is True)
     kwargs["show"] = False if show_later is True else kwargs.get("show", True)
-    cts = adata.obs[col_celltype].unique().to_list()  # cell types present
+    cts = list(adata.obs[col_celltype].unique())  # cell types present
     if len(cts) < len(adata.obs[col_celltype].cat.categories):
         warnings.warn(
             f"***Removing unused categories from `.obs['{col_celltype}']`")
@@ -265,7 +265,7 @@ def plot_violin(adata, genes=None, col_celltype=None,
             for x in gss:
                 kws_fig["gridspec_kw"][x] = kwargs.pop(x, None)
         if isinstance(genes, (list, np.ndarray, tuple)):  # flat list of genes
-            fig, axes = plt.subplots(round(len(genes) / col_wrap),
+            fig, axes = plt.subplots(math.ceil(len(genes) / col_wrap),
                                      col_wrap, **kws_fig)  # facet grid setup
             kws = {**kwargs, "show": False}  # avoid showing during iterations
             for i, g in zip(axes.flatten(), genes):  # iterate components
@@ -340,7 +340,7 @@ def plot_violin_by_group(adata, gene, col_celltype=None, col_condition=None,
             kwargs["gridspec_kw"] is None) else kws_fig["gridspec_kw"]
         for x in gss:
             kws_fig["gridspec_kw"][x] = kwargs.pop(x, None)
-    fig, axes = plt.subplots(round(len(conds) / col_wrap),
+    fig, axes = plt.subplots(math.ceil(len(conds) / col_wrap),
                              col_wrap, **kws_fig)  # facet grid setup
     kws = {**kwargs, "show": False}  # to avoid showing during iterations
     for i, g in zip(axes.flatten(), conds):  # iterate components to plot

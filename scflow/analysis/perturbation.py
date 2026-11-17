@@ -363,7 +363,7 @@ def run_deg_pydeseq(adata, col_condition, col_covariate=None, n_top_vars=15,
     figs = {}
     if col_covariate is None:
         key_control, key_treatment = [{col_condition: x} if isinstance(
-            x, str) else x for x in [key_control, key_treatment]]
+            x, str) or x is None else x for x in [key_control, key_treatment]]
     key_control_cov, key_treatment_cov = key_control.pop(
         col_covariate, None), key_treatment.pop(col_covariate, None)
     key_control, key_treatment = key_control[col_condition], key_treatment[

@@ -225,10 +225,11 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
         if isinstance(adata, list):  # retrieve sample names if needed
             sample_ids = []
             for x in adata:
-                sid = sc.read(adata[x]).obs[col_sample]
+                sid = (sc.read(x) if isinstance(x, (
+                    str, os.PathLike)) else x).obs[col_sample]
                 if len(sid.unique()) > 1:
-                    raise ValueError(f"Sample {adata[x]} has non-unique valu"
-                                     f"es in sample column '{col_sample}'")
+                    raise ValueError(f"Sample {x} has non-unique values "
+                                     f"in sample column '{col_sample}'")
                 sample_ids += [sid.iloc[0]]
             adata = dict(zip(sample_ids, adata))  # convert list to dictionary
         first_args = [adata, out_file]  # positional arguments to concatenate
@@ -395,7 +396,7 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
     # Scanorama
     elif flavor.lower() == "scanorama":
         batch_cats = adata.obs[col_sample].cat.categories
-        adata_list = [adata[adata.obs[col_batch] == b].copy()
+        adata_list = [adata[adata.obs[col_sample] == b].copy()
                       for b in batch_cats]
         scanorama.integrate_scanpy(adata_list)
         adata.obsm["Scanorama"] = np.zeros((adata.shape[0], adata_list[
@@ -429,7 +430,8 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
         adata = adata_original
         # adata.raw = adata_original
     if new_pca_key is not None:  # new PCA -> X_pca default key
-        adata.obsm["X_pca_old"] = adata.obsm["X_pca"].copy()
+        if "X_pca" in adata.obsm:
+            adata.obsm["X_pca_old"] = adata.obsm["X_pca"].copy()
         adata.obsm["X_pca"] = adata.obsm[new_pca_key].copy()
     print(f"\n>>>Setting `.X` back to {layer_counts} layer...")
     adata.X = adata.layers[layer_counts].copy()  # set back to counts layer
