@@ -112,8 +112,8 @@ class Rna(object):
                  "`self._info['integrated'] = True` to avoid"
                  " recalculating PCA when using `self.cluster()`")
         self.assay = assay
+        self.adata = adata
         self._rna = None
-        self._adata = adata
         # self._adata = adata
         # self._update_rna_from_adata()
 
@@ -336,23 +336,28 @@ class Rna(object):
         if plot not in [False, None]:  # plotting
             plot = ["basic", "dot"] if plot is True else [plot] if isinstance(
                 plot, str) else plot
-            kws_plot = {} if kws_plot is None else {**kws_plot}
-            kws_plot.update({"key": key_added, "n_genes": n_genes})
-            if "groups" not in kws_plot and grps is not None:
-                kws_plot["groups"] = grps
-            if "basic" in plot:
-                sc.pl.rank_genes_groups(adata, key=key_added)
-            if "dot" in plot:
-                sc.pl.rank_genes_groups_dotplot(adata, **kws_plot)
-            if "matrix" in plot:
-                sc.pl.rank_genes_groups_matrixplot(adata, **kws_plot)
-            if "heat" in plot:
-                sc.pl.rank_genes_groups_heatmap(adata, **kws_plot)
-            if "violin" in plot:
-                kwp = {**kws_plot}
-                _ = kwp.pop("dendrogram", None)
-                _ = kwp.pop("figsize", None)
-                sc.pl.rank_genes_groups_violin(adata, **kwp)
+            try:
+                kws_plot = {} if kws_plot is None else {**kws_plot}
+                kws_plot.update({"key": key_added, "n_genes": n_genes})
+                if "dendrogram" not in kws_plot:
+                    kws_plot.update({"dendrogram": False})
+                if "groups" not in kws_plot and grps is not None:
+                    kws_plot["groups"] = grps
+                if "basic" in plot:
+                    sc.pl.rank_genes_groups(adata, key=key_added)
+                if "dot" in plot:
+                    sc.pl.rank_genes_groups_dotplot(adata, **kws_plot)
+                if "matrix" in plot:
+                    sc.pl.rank_genes_groups_matrixplot(adata, **kws_plot)
+                if "heat" in plot:
+                    sc.pl.rank_genes_groups_heatmap(adata, **kws_plot)
+                if "violin" in plot:
+                    kwp = {**kws_plot}
+                    _ = kwp.pop("dendrogram", None)
+                    _ = kwp.pop("figsize", None)
+                    sc.pl.rank_genes_groups_violin(adata, **kwp)
+            except Exception as err:
+                print(f"Plotting markers failed: {err}")
         if inplace is False:
             mks = sc.get.rank_genes_groups_df(
                 adata, grps, key=key_added).set_index("names", append=True)

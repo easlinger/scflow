@@ -16,6 +16,7 @@ import marsilea as ma
 import marsilea.plotter as mp
 import scanpy as sc
 import math
+import warnings
 import numpy as np
 import pandas as pd
 import scflow
@@ -120,6 +121,7 @@ def plot_dot(adata, genes=None, col_celltype=None, return_fig=True,
     if isinstance(genes, dict):  # dict will make brackets grouping genes...
         title = title + "\n\n" if title else title  # ...ensure space up top
     # top = kwargs.pop("top", 0.9)
+    _ = kwargs.pop("show_gene_labels", None)
     fig = sc.pl.DotPlot(adata, genes, col_celltype, title=title, **kwargs)
     # if title is not None:  # title?
     #     fig.fig_title = title
@@ -146,6 +148,20 @@ def plot_matrix(adata, genes=None, col_celltype=None,
     show_later = fontsize is not None or kws_gs is not None and (
         "show" not in kwargs or kwargs["show"] is True)
     kwargs["show"] = False if show_later is True else kwargs.get("show", True)
+    cts = adata.obs[col_celltype].unique().to_list()  # cell types present
+    if len(cts) < len(adata.obs[col_celltype].cat.categories):
+        warnings.warn(
+            f"***Removing unused categories from `.obs['{col_celltype}']`")
+        adata.obs[col_celltype] = adata.obs[
+            col_celltype].cat.remove_unused_categories()
+    # _ = adata.uns.pop(f"dendrogram_{col_celltype}", None)
+    # if isinstance(genes, dict) and any((t in cts for t in genes)):
+    #     genes_o = {**genes}
+    #     genes = dict(zip(genes, [set(genes[x]).intersection(
+    #         adata.var_names) for x in genes if x in cts]))
+    #     if len(genes) < len(genes_o):
+    #         print(f"Had to drop {set(genes_o.keys()).difference(genes)} "
+    #               f"because label(s) not in `adata.obs['{col_celltype}']`")
     fig = sc.pl.matrixplot(adata, genes, col_celltype,
                            return_fig=return_fig, **kwargs)
     if fig is not None:
@@ -166,7 +182,7 @@ def plot_matrix(adata, genes=None, col_celltype=None,
 
 def plot_matrix_marsilea(adata, genes=None, col_celltype=None,
                          cmap="coolwarm", dendrogram=True, vcenter=0,
-                         cell_colors=None, figsize=None):
+                         cell_colors=None, title=None, figsize=None):
     """Plot matrix using Marsilea (adapted `scanpy` tutorial)."""
     cells, markers = [], []
     genes = {c: [g for g in genes[c] if g in adata.var_names] for c in genes}
@@ -213,6 +229,8 @@ def plot_matrix_marsilea(adata, genes=None, col_celltype=None,
     if dendrogram is True:
         mpp.add_dendrogram("right", pad=0.1)
     mpp.add_legends()
+    if title is not None:
+        mpp.add_title(title)
     mpp.render()
     return mpp
 

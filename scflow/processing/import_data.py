@@ -74,7 +74,7 @@ def read_scrna(file_path, **kws_read):
         rna = sc.read_10x_mtx(os.path.dirname(file_path), **kws_read)
     elif os.path.isdir(file_path):
         rna = sc.read_10x_mtx(file_path, **kws_read)
-    elif os.path.slitext(file_path)[1] == ".h5":
+    elif os.path.splitext(file_path)[1] == ".h5":
         rna = sc.read_hdf(file_path, **kws_read)
     else:
         raise ValueError("`file_path` not a valid/recognized input.")
@@ -154,8 +154,14 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
         kws_pca_final = {}
     if isinstance(adata, (list, dict)):
         ix_0 = 0 if isinstance(adata, list) else list(adata.keys())[0]
+    if isinstance(col_sample, (np.ndarray, tuple)):
+        col_sample = list(col_sample)
     if isinstance(adata, (list, dict)) and isinstance(
             adata[ix_0], anndata.AnnData):  # if needs concatenate
+        if isinstance(col_sample, list):
+            if len(col_sample) != len(adata):
+                raise ValueError("Length of `col_sample` must match "
+                                 "length of `adata` if provided as a list")
         ids = col_sample if isinstance(col_sample, list) else [
             col_sample] * len(adata)  # in case sample-specific ID columns
         sample_ids = list(adata.keys()) if isinstance(adata, dict) else [
@@ -164,6 +170,9 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
             for i, x in enumerate(
                 adata)]  # IDs from dict keys or .obs (if possible) or create
         if isinstance(adata, list):  # convert to dictionary if list
+            if len(set(sample_ids)) != len(adata):
+                raise ValueError("Unique `col_sample` values must "
+                                 "match `adata` length")
             adata = dict(zip(sample_ids, adata))
         if isinstance(col_sample, list):
             col_sample = col_sample[0]  # if >1 columns, use 1st as final name
@@ -224,7 +233,8 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
             adata = dict(zip(sample_ids, adata))  # convert list to dictionary
         first_args = [adata, out_file]  # positional arguments to concatenate
     else:
-        print("\n>>>File appears concatenated already. Proceeding...")
+        print(
+            f"\n>>>File appears concatenated already. Proceeding...\n{adata}")
         pass  # already concatenated
 
     # Concatenation
@@ -336,7 +346,7 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
                 kws_train_scanvi[k] = kwargs.pop(k)
             unlabeled = kwargs.pop("unlabeled_category", "Unlabeled")
             if "use_minified" in kwargs:
-                kws_setup["use_minified"] = kwargs.pop(x)
+                kws_setup["use_minified"] = kwargs.pop("use_minified")
         if conserve_memory is False:
             adata = adata.copy()
         scvi.model.SCVI.setup_anndata(adata, **kws_setup)  # setup data
@@ -379,9 +389,8 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
                     plt.ylabel("Observed")
                 except Exception as err:
                     print(f"\nCould not plot scANVI confusion matrix: {err}")
-        # if use_rapids is True:
-        #     model.to_device("cpu")
-        adata.obsm[new_pca_key] = model.get_latent_representation()
+        else:
+            adata.obsm[new_pca_key] = model.get_latent_representation()
 
     # Scanorama
     elif flavor.lower() == "scanorama":
@@ -417,8 +426,8 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
                   f" `.var['{x}_{flavor.lower()}']`...")
             adata_original.var[f"{x}_{flavor.lower()}"] = adata.var[x].copy()
         adata_original.uns[f"var_{flavor}"] = adata.var.copy()
-        # adata = adata_original
-        adata.raw = adata_original
+        adata = adata_original
+        # adata.raw = adata_original
     if new_pca_key is not None:  # new PCA -> X_pca default key
         adata.obsm["X_pca_old"] = adata.obsm["X_pca"].copy()
         adata.obsm["X_pca"] = adata.obsm[new_pca_key].copy()
