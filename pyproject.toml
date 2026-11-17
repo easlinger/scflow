@@ -82,13 +82,13 @@ test = [
 source = "vcs"
 
 [tool.coverage.run]
-source = ["glmax"]
+source = ["scflow"]
 omit = [
     "**/test_*.py",
 ]
 
 [tool.pytest.ini_options]
-testpaths = "glmax/tests"
+testpaths = "scflow/tests"
 xfail_strict = true
 addopts = [
     "--import-mode=importlib",  # allow using test files with same name

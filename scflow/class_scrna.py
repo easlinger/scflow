@@ -260,13 +260,16 @@ class Rna(object):
         """Get gene expression matrix."""
         adata = self.rna if subset is None else self.rna[subset]
         genes = [genes] if isinstance(genes, str) else genes
-        g_original = list(genes) if genes is not None else genes
-        genes = None if genes is None else list(set(
-            genes).intersection(adata.var_names))  # valid gene names
-        if g_original is not None and len(g_original) > len(genes):
+        if genes is None:
+            genes = list(adata.var_names)
+        genes = pd.unique(genes)
+        g_original = list(genes)
+        if len(genes) < len(adata.var_names):
+            genes = list(set(genes).intersection(
+                adata.var_names))  # valid gene names
             warn(f"Genes not found: {set(genes).difference(set(g_original))}")
         # print(g_original)
-        expr = (adata if genes is None else adata[:, genes])
+        expr = adata[:, genes]
         expr = expr.X if layer is None else expr.layers[layer].copy()
         if hasattr(expr, "toarray"):
             expr = expr.toarray()

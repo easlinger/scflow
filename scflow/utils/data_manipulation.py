@@ -51,7 +51,9 @@ def create_pseudobulk(adata, col_groupings, col_celltype,
     else:
         print(f"\t***Using `decoupler` pseudo-bulking on layer '{layer}'...")
         col_target = None
-        grps = col_celltype + list(col_groupings[1:] if len(
+        ccc = [col_celltype] if isinstance(col_celltype, str) else list(
+            col_celltype)  # ensure list
+        grps = ccc + list(col_groupings[1:] if len(
             col_groupings) > 1 else [])
         if any((i not in [col_groupings[0]] + grps for i in adata.obs)):
             print(f"\t***Subsetting `.obs` to {[col_groupings[0]] + grps}...")

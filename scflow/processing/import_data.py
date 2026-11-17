@@ -395,14 +395,14 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
 
     # Scanorama
     elif flavor.lower() == "scanorama":
-        batch_cats = adata.obs[col_sample].cat.categories
+        batch_cats = list(adata.obs[col_sample].unique())
         adata_list = [adata[adata.obs[col_sample] == b].copy()
                       for b in batch_cats]
         scanorama.integrate_scanpy(adata_list)
         adata.obsm["Scanorama"] = np.zeros((adata.shape[0], adata_list[
             0].obsm[new_pca_key].shape[1]))
         for i, b in enumerate(batch_cats):
-            adata.obsm["Scanorama"][adata.obs[col_batch] == b] = adata_list[
+            adata.obsm["Scanorama"][adata.obs[col_sample] == b] = adata_list[
                 i].obsm[new_pca_key]
     else:
         raise ValueError(f"`flavor='{flavor}'` not valid.")

@@ -47,7 +47,6 @@ def run_decoupler(adata, col_celltype, col_condition=None, col_sample=None,
                             method="t-test", key_added="t-test")
     t_stats_all = sc.get.rank_genes_groups_df(
         adata, None, key="t-test").set_index("names")
-    use_hvg = 1000
     if use_hvg not in [None, False]:
         if use_hvg is not True:
             sc.pp.highly_variable_genes(
