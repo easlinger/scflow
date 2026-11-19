@@ -17,11 +17,12 @@ except Exception:
     rsc = None
     warn("Cannot import rapids_singlecell.")
 import numpy as np
+from scflow.constants import layer_log1p
 
 
 def cluster(anndata_object, col_celltype="leiden", seed=0, assay=None,
             n_comps=None, resolution=1, min_dist=0.5, spread=1,
-            kws_pca=None, kws_neighbors=None, layer="log1p",
+            kws_pca=None, kws_neighbors=None, layer=layer_log1p,
             kws_cluster=None, kws_umap=None, plot=True,
             use_rapids=True, use_highly_variable=True, inplace=False):
     """Cluster omics data."""

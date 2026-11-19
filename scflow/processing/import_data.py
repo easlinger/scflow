@@ -7,10 +7,15 @@ Functions for data reading, concatenation, integration, etc.
 """
 
 import os
+import copy
 import matplotlib.pyplot as plt
 import anndata
 import scanpy as sc
+import muon
+import mudata
+from mudata import MuData
 import scvi
+import random
 from scipy import sparse
 from warnings import warn
 try:
@@ -35,13 +40,20 @@ try:
     import scanorama
 except Exception:
     pass
+from pandas.api.types import (
+    is_bool_dtype,
+    # is_extension_array_dtype,
+    is_integer_dtype,
+    is_numeric_dtype,
+)
 import pandas as pd
 import numpy as np
 import scflow
+from scflow.constants import layer_counts, layer_log1p, layer_scaled
 
-layer_log1p = "log1p"
-layer_counts = "counts"
-layer_scaled = "scaled"
+# layer_log1p = "log1p"
+# layer_counts = "counts"
+# layer_scaled = "scaled"
 KWS_SCVI = [
     "max_epochs", "accelerator", "devices", "train_size", "validation_size",
     "shuffle_set_split", "batch_size", "datasplitter_kwargs", "plan_kwargs",
@@ -92,8 +104,8 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
               basis="X_pca", drop_non_hvgs=False, retain_original=False,
               plot_qc=False, out_file=None, vars_regress_out=None,
               use_rapids=True, verbose=True, layer=None,
-              out_file_processed=None, flavor="harmony",
-              col_celltype=None, conserve_memory=False, **kwargs):
+              out_file_processed=None, flavor="harmony", assay=None,
+              col_celltype=None, conserve_memory=False, seed=0, **kwargs):
     """
     Integrate scRNA-seq anndata objects with `Harmony`.
 
@@ -148,6 +160,10 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
     """
     pkg = sc if rsc is None or use_rapids is False else rsc
     new_pca_key = kwargs.pop("new_pca_key", f"X_pca_{flavor.lower()}")
+    random.seed(seed)
+    np.random.seed(seed)
+    if flavor.lower() in ["scvi", "scanvi"]:
+        scvi.settings.seed = seed
     if rsc is None:
         use_rapids = False
     if kws_pca_final is None:
@@ -225,8 +241,9 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
         if isinstance(adata, list):  # retrieve sample names if needed
             sample_ids = []
             for x in adata:
-                sid = (sc.read(x) if isinstance(x, (
-                    str, os.PathLike)) else x).obs[col_sample]
+                sid = ((muon if os.path.splitext(x)[
+                    1] == ".h5mu" else sc).read(x) if isinstance(x, (
+                        str, os.PathLike)) else x).obs[col_sample]
                 if len(sid.unique()) > 1:
                     raise ValueError(f"Sample {x} has non-unique values "
                                      f"in sample column '{col_sample}'")
@@ -243,15 +260,33 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
         print("\n>>>Concatenating data...")
         if merge is not None or uns_merge is not None:
             warn("\n`merge`/`uns_merge` other than None not yet supported\n")
-        adata = fx_concat(
-            *first_args, axis=axis, join=join,
+        ix1 = list(adata.keys())[0] if isinstance(
+            adata, dict) else 0  # index of 1st adata
+        mudata_files = isinstance(adata[ix1], MuData) or (isinstance(adata[
+            ix1], (str, os.PathLike)) and os.path.splitext(
+                adata[ix1])[1] == ".h5mu")  # mudata?
+        kws_concat = dict(
+            axis=axis, join=join,
             # merge=merge, uns_merge=uns_merge,
             label=col_sample, index_unique=index_unique,
-            pairwise=pairwise, fill_value=fill_value)  # concatenate
+            pairwise=pairwise, fill_value=fill_value
+        )
+        if mudata_files:
+            fx_concat = mudata.concat
+            if isinstance(adata[ix1], (str, os.PathLike)):
+                warn("\n\nNo experimental on-disk concatenation function "
+                     "for mudata. Loading into memory...\n\n")
+                adata = {x: muon.read(adata[x]) for x in adata}
+            _ = kws_concat.pop("axis", None)
+        adata = fx_concat(*first_args, **kws_concat)  # concatenate
         if adata is None:  # if wrote to file instead of doing in memory...
             adata = sc.read_h5ad(out_file)
 
     # To GPU (Optionally)
+    muadata = None
+    if isinstance(adata, MuData):
+        muadata = adata.copy()
+        adata = muadata[assay if assay else "rna"]
     pkg = rsc if use_rapids is True else sc
     if use_rapids is True:  # make sure proper matrix format for `rapids`
         for x in adata.layers:
@@ -412,20 +447,38 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
         rsc.get.anndata_to_CPU(adata)  # move back to cpu
     if adata_original is not None:  # join new information to original object?
         adata_original.obsm[new_pca_key] = adata.obsm[new_pca_key].copy()
-        for x in adata.obs:
-            if x not in adata_original.obs or (all(adata.obs[
-                    x] == adata_original.obs[x]) is False):
-                print(f"\t***{'Overw' if x in adata_original.obs else 'W'}"
-                      f"riting `.obs['{x}']` to original object...")
-                adata_original.obs[x] = adata.obs[x].copy()
-        for x in adata.uns:
+        new_obs = [x for x in adata.obs if x not in adata_original.obs or (
+            not adata.obs[x].equals(adata_original.obs[x]))]
+        for x in new_obs:  # iterate .obs columns & replace with new
+            print(f"\t***{'Overw' if x in adata_original.obs else 'W'}"
+                  f"riting `.obs['{x}']` to original object...")
+            if x in adata_original.obs:
+                adata_original.obs = adata_original.obs.drop(x, axis=1)
+            adata_original.obs[x] = adata.obs[x].infer_objects().copy()
+        for x in adata.uns:  # iterate .uns entries & replace with new
             print(f"\t***{'Overw' if x in adata_original.uns else 'W'}riting "
                   f"`.uns['{x}']` to original object...")
-            adata_original.uns[x] = adata.uns[x].copy()
-        for x in [i for i in adata.var if i not in adata_original.var]:
-            print(f"\t***Joining `.var['{x}']` to original object as"
-                  f" `.var['{x}_{flavor.lower()}']`...")
-            adata_original.var[f"{x}_{flavor.lower()}"] = adata.var[x].copy()
+            adata_original.uns[x] = copy.deepcopy(adata.uns[x])
+        # new_var = [x for x in adata.var if x not in adata_original.var or (
+        #     not adata.var[x].equals(adata_original.var[x]))]
+        # for x in new_var:  # iterate .var columns & add new (with suffix)
+        #     print(f"\t***Joining `.var['{x}']` to original object as"
+        #           f" `.var['{x}_{flavor.lower()}']`...")
+        #     if f"{x}_{flavor.lower()}" in adata_original.var:
+        #         warn(f"\t\t\t{x}_{flavor.lower()} already in original "
+        #              "`adata`. Replacing...")
+        #         adata_original.var = adata_original.var.drop(
+        #             f"{x}_{flavor.lower()}", axis=1)
+        #     try:
+        #         adata_original.var = adata_original.var.join(
+        #             _make_h5ad_safe(adata.var[x]).to_frame(
+        #                 f"{x}_{flavor.lower()}"))
+        #     except Exception as err:
+        #         print(f"\t***Join failed: new `.var['{x}_{flavor.lower()}"
+        #               f"']`\n\t\n\t{err}Putting in `.uns`...")
+        #         adata_original.uns[
+        #             f"{x}_{flavor.lower()}"] = _make_h5ad_safe(
+        #                 adata.var[x].copy())
         adata_original.uns[f"var_{flavor}"] = adata.var.copy()
         adata = adata_original
         # adata.raw = adata_original
@@ -440,7 +493,11 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
             sc.pl.pca(adata, color=col_covs)
         except Exception as err:
             print(f"\n\n PCA plotting failed: {err}")
-    return adata
+    if mudata is not None:
+        mudata[assay if assay else "rna"] = adata
+        return mudata
+    else:
+        return adata
 
 
 def benchmark_integration(adata, col_sample, pca_keys=None, col_celltype=None,
@@ -472,3 +529,37 @@ def benchmark_integration(adata, col_sample, pca_keys=None, col_celltype=None,
         print(f"\n\n{'=' * 80}\n{x} Benchmarking Results\n{'=' * 80}",
               results[x])
     return results, bmr
+
+
+def _make_h5ad_safe(series, na_str=None):
+    """
+    Convert a series into an h5ad write-compatible version.
+
+    Written by Claude Sonnet 5.5 (11/18/2026) and checked by human.
+
+    Bools without NAs stay bool, numerics become int64 or float64
+    (NaN for NAs), and everything else becomes a string categorical.
+    If na_str is given, NAs in string-like data are
+    filled with it instead of NaN.
+    """
+    series = series.convert_dtypes(
+        infer_objects=True, convert_string=False,
+        convert_integer=False, convert_floating=False
+    )
+    has_na = series.isna().any()
+    dtype = series.dtype
+    numpy_dtype = getattr(dtype, "numpy_dtype", dtype)
+    if isinstance(dtype, pd.CategoricalDtype):
+        if is_string_dtype(series.cat.categories):
+            return series
+    elif is_bool_dtype(dtype):
+        return series if has_na else series.astype(bool)
+    elif is_integer_dtype(dtype) and has_na:
+        return series
+    elif is_numeric_dtype(dtype):
+        return series.astype(numpy_dtype)
+    strings = series.astype(str).where(series.notna())
+    if na_str is not None:
+        return strings.fillna(na_str)
+    return strings.astype("category")
+

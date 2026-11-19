@@ -29,6 +29,7 @@ except Exception:
     cupy = None
 import pandas as pd
 # import numpy as np
+from scflow.constants import layer_counts, layer_log1p, layer_scaled
 
 if rmm:
     rmm.reinitialize(managed_memory=True, pool_allocator=False)
@@ -37,8 +38,8 @@ if rmm:
 
 def preprocess(anndata_object, min_max_genes=None, min_max_cells=None,
                col_sample=None, col_batch=None,
-               layer_counts="counts", layer_log1p="log1p",
-               layer_scaled="scaled", doublet_detection=False,
+               layer_counts=layer_counts, layer_log1p=layer_log1p,
+               layer_scaled=layer_scaled, doublet_detection=False,
                normalize=True, min_max_counts=None,
                vars_regress_out=None, target_sum=1e4,
                exclude_highly_expressed=False, n_top_genes=2000, max_mt=None,

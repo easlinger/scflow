@@ -8,15 +8,17 @@ from anndata import AnnData
 import scanpy as sc
 # from scipy.sparse import issparse
 from mudata import MuData
-import scflow
-# from scflow import Regression
-# from scflow.processing import import_data
 import pandas as pd
 # import numpy as np
+# from scflow import Regression
+# from scflow.processing import import_data
+import scflow
+# from scflow.constants import layer_counts, layer_log1p, layer_scaled
+from scflow.constants import layer_log1p
 
-layer_log1p = "log1p"  # TODO: MOVE THESE TO CONSTANTS MODULE
-layer_counts = "counts"
-layer_scaled = "scaled"
+# layer_log1p = "log1p"  # TODO: MOVE THESE TO CONSTANTS MODULE
+# layer_counts = "counts"
+# layer_scaled = "scaled"
 
 warnings.simplefilter(action="default")
 

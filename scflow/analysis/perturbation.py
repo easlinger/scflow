@@ -19,12 +19,13 @@ import pertpy as pt
 import pandas as pd
 import numpy as np
 import scflow
+from scflow.constants import layer_counts, layer_log1p
 
 
 def analyze_perturbation_distance(adata, col_condition, key_pca="X_pca",
-                                  layer="log1p", cmap="Reds", figsize=None,
-                                  show_progressbar=True, kwargs_plot=None,
-                                  inplace=True, **kwargs):
+                                  layer=layer_log1p, cmap="Reds",
+                                  figsize=None, show_progressbar=True,
+                                  kwargs_plot=None, inplace=True, **kwargs):
     """Analyze the perturbation effect of treatment(s)."""
     distance = pt.tl.Distance("mse", obsm_key=key_pca)
     if inplace is False:
@@ -162,7 +163,7 @@ def analyze_composition(adata, col_celltype, col_condition, col_sample=None,
 
 
 def analyze_composition_tree(adata, col_celltype, col_covariates, col_sample,
-                             layer="counts", key_control=None,
+                             layer=layer_counts, key_control=None,
                              col_celltype_hierarchy=None,
                              dendrogram_key=None, est_fdr=0.05,
                              model_type="cell_level", formula=None,
@@ -266,7 +267,7 @@ def run_deg_edgr(adata, col_condition, col_covariate=None, formula=None,
                  key_treatment=None, key_control=None,
                  col_sample=None, col_celltype=None,  # for pseudo-bulking
                  log2fc_thresh=0, n_top_vars=8,
-                 layer="counts", layer_counts="counts",
+                 layer=layer_counts, layer_counts=layer_counts,
                  fig_title=None, xlabel_rotation=None, legend_loc=None,
                  kws_subplots=None, layer_plot=None,
                  kws_xticks=None, **kwargs):
@@ -358,7 +359,8 @@ def run_deg_edgr(adata, col_condition, col_covariate=None, formula=None,
 def run_deg_pydeseq(adata, col_condition, col_covariate=None, n_top_vars=15,
                     col_celltype=None, col_sample=None, formula=None,
                     key_control=None, key_treatment=None,
-                    threshold_l2fc=0, layer="counts", figsize=None, **kwargs):
+                    threshold_l2fc=0, layer=layer_counts,
+                    figsize=None, **kwargs):
     """Run PyDESeq2 differential gene expression testing."""
     figs = {}
     if col_covariate is None:
@@ -383,7 +385,7 @@ def run_deg_pydeseq(adata, col_condition, col_covariate=None, n_top_vars=15,
         print("***Pseudo-bulking...")
         mode = kwargs.pop("mode", "sum")
         adata = scflow.tl.create_pseudobulk(
-            adata, col_sample, col_celltype, layer="counts", mode=mode)
+            adata, col_sample, col_celltype, layer=layer, mode=mode)
     pds2 = pt.tl.PyDESeq2(adata=adata, design=formula)
     pds2.fit()
     res_df = pds2.test_contrasts(pds2.contrast(
@@ -458,7 +460,7 @@ def run_mixscape(adata, col_condition, col_guide,
 
 def run_dialogue_mcp(adata, col_celltype, col_counts="total_counts",
                      col_condition=None, col_sample=None, col_confounder=None,
-                     n_mpcs=3, layer="counts", cmap="coolwarm",
+                     n_mpcs=3, layer=layer_counts, cmap="coolwarm",
                      mlm_threshold=0.7, p_threshold=0.05):
     """Run Dialogue to find multi-cellular programs."""
     adata = adata.copy()

@@ -14,14 +14,14 @@ import scanpy as sc
 import decoupler as dc
 import gseapy as gp
 import pandas as pd
-import numpy as np
+# import numpy as np
 import scflow
 
 
-def run_decoupler(adata, col_celltype, col_condition=None, col_sample=None,
+def run_decoupler(adata, col_celltype, col_sample=None,
                   resource="MSigDB", species="human", query=None,
                   # query="collection == 'reactome_pathways'",
-                  use_hvg=True, inplace=False):
+                  use_hvg=True, use_raw=False, inplace=False):
     """Run dc on DEGs."""
     if inplace is False:
         adata = adata.copy()
@@ -38,12 +38,12 @@ def run_decoupler(adata, col_celltype, col_condition=None, col_sample=None,
         gs_size = rsrc.groupby("geneset").size()
         gsea_genesets = gs_size.index[(gs_size > 15) & (gs_size < 500)]
         rsrc = rsrc[rsrc["geneset"].isin(gsea_genesets)]
-    if col_condition is not None:
-        adata.obs.loc[:, "group_dc"] = adata.obs[col_condition].astype(
-            "string") + "_" + adata.obs[col_celltype]
-    else:
-        adata.obs.loc[:, "group_dc"] = adata.obs[col_celltype].copy()
-    sc.tl.rank_genes_groups(adata, "group_dc",
+    # if col_condition is not None:
+    #     adata.obs.loc[:, "group_dc"] = adata.obs[col_condition].astype(
+    #         "string") + "_" + adata.obs[col_celltype]
+    # else:
+    #     adata.obs.loc[:, "group_dc"] = adata.obs[col_celltype].copy()
+    sc.tl.rank_genes_groups(adata, "group_dc", use_raw=use_raw,
                             method="t-test", key_added="t-test")
     t_stats_all = sc.get.rank_genes_groups_df(
         adata, None, key="t-test").set_index("names")
@@ -55,7 +55,7 @@ def run_decoupler(adata, col_celltype, col_condition=None, col_sample=None,
     gsea_results = {}
     for g in adata.obs["group_dc"].unique():
         t_stats = t_stats_all[t_stats_all.group == g].sort_values(
-            "scores", key=np.abs, ascending=False)[["scores"]].rename_axis([
+            "scores", ascending=False)[["scores"]].rename_axis([
                 "Condition"], axis=1)
         # scores, norm, pvals = dc.mt.gsea(t_stats.T, rsrc)
         gsea_results[g] = dc.mt.gsea(t_stats.T, rsrc)
@@ -67,12 +67,12 @@ def run_decoupler(adata, col_celltype, col_condition=None, col_sample=None,
     return gsea_results
 
 
-def run_decoupler_ulm(adata, col_celltype, col_condition=None,
+def run_decoupler_ulm(adata, col_celltype, col_condition=None, direction="+",
                       resource="progeny", query=None, species="human",
                       top_n=3, plot=True, title=None, p_threshold=0.05,
                       title_position=0.6, brackets=True,
-                      title_cb="Z-Scaled Scores", inplace=False, **kws_fig):
-    """Run ULM."""
+                      title_cb="Scaled Scores", inplace=False, **kws_fig):
+    """Run single-cell enrichment and pathway analysis."""
     fig = None
     if inplace is False:
         adata = adata.copy()
@@ -81,7 +81,7 @@ def run_decoupler_ulm(adata, col_celltype, col_condition=None,
         out = dict(zip(grps, [run_decoupler_ulm(
             adata[adata.obs[col_condition] == g], col_celltype,
             resource=resource, species=species, top_n=top_n, query=query,
-            plot=False, inplace=True) for g in grps]))
+            plot=False, direction=direction, inplace=True) for g in grps]))
         fig = None
         if plot is True:
             cmap = kws_fig.pop("cmap", "RdBu_r")
@@ -94,6 +94,8 @@ def run_decoupler_ulm(adata, col_celltype, col_condition=None,
                 out[g][2][v]) > 0] for g in out]))
             non_empty_out = [i for i in non_empty_out if len(
                 non_empty_out[i]) > 0]  # filter if no significant pathways
+            if len(non_empty_out) == 0:  # if no significant pathways, stop
+                return out, fig
             fig, axes = plt.subplots(
                 *scflow.pl.square_grid(len(non_empty_out)), **kws_fig,
                 gridspec_kw=gridspec_kws)
@@ -144,6 +146,9 @@ def run_decoupler_ulm(adata, col_celltype, col_condition=None,
                         wspace=1, title=x, rotation=45)
             except Exception as err:
                 print(err)
+        # remember, another return out, fig is above the plotting code
+        # in case no significant pathways, so don't add here unless it's
+        # okay to skip any code here if all non-significant
         return out, fig
     rsrc = dc.op.progeny(organism=species.lower()) if (
         resource == "progeny") else dc.op.hallmark(
@@ -157,35 +162,42 @@ def run_decoupler_ulm(adata, col_celltype, col_condition=None,
     dcdf = dc.tl.rankby_group(
         adata=score, groupby=col_celltype,
         reference="rest", method="t-test_overestim_var")
-    dcdf = dcdf[dcdf["stat"] > 0]
+    if direction is not None:
+        if direction.lower() not in [
+                "pos", "positive", "+", "neg", "negative", "-"]:
+            raise ValueError(
+                "`direction` must be pos, positive, +, neg, negative, or -")
+        dcdf = dcdf[dcdf["stat"] > 0] if direction.lower() in [
+            "pos", "positive", "+"] else dcdf[dcdf["stat"] < 0]
     if p_threshold is not None:
         dcdf = dcdf[dcdf["padj"] < p_threshold]
-    ctypes_dict = dcdf.groupby("group").head(top_n).groupby("group")[
+    ctypes_dict = dcdf.groupby("group", "padj").head(top_n).groupby("group")[
         "name"].apply(lambda x: list(x)).to_dict()
     if plot is True:
-        sgv = list(score.obs.columns.difference(functools.reduce(
-            lambda u, v: u + v, [ctypes_dict[q] for q in ctypes_dict])))
-        score.obs = score.obs[sgv]
         if len(ctypes_dict) < 1:
             warn("No significant pathways found.")
         else:
-            fig = sc.pl.matrixplot(
-                adata=score, var_names=ctypes_dict, groupby=col_celltype,
-                dendrogram=True, standard_scale="var",
-                colorbar_title=title_cb, cmap="RdBu_r")
-            if title is not None:  # title?
-                fig.fig_title = title
-            fig.show()
+            sgv = list(score.obs.columns.difference(functools.reduce(
+                lambda u, v: u + v, [ctypes_dict[q] for q in ctypes_dict])))
+            score.obs = score.obs[sgv]
+            if not score.obs.empty:
+                fig = sc.pl.matrixplot(
+                    adata=score, var_names=ctypes_dict, groupby=col_celltype,
+                    dendrogram=True, standard_scale="var",
+                    colorbar_title=title_cb, cmap="RdBu_r")
+                if title is not None:  # title?
+                    fig.fig_title = title
+                fig.show()
     return score, dcdf, ctypes_dict, fig
 
 
 def run_decoupler_aucell(adata, col_covariates=None, resource="progeny",
-
                          query=None, species="human", wspace=0.5,
                          col_wrap=True, layer=None, inplace=False, **kws_fig):
     """Run AUCell."""
     if isinstance(col_covariates, str):
         col_covariates = [col_covariates]
+    col_covariates = list(col_covariates)
     if inplace is False:
         adata = adata.copy()
     rsrc = dc.op.progeny(organism=species.lower()) if (
@@ -202,8 +214,14 @@ def run_decoupler_aucell(adata, col_covariates=None, resource="progeny",
         if col_wrap is True:
             col_wrap = scflow.pl.square_grid(
                 len(col_covariates + pathways))[1]
-        sc.pl.umap(adata, color=col_covariates + pathways, frameon=False,
-                   ncols=col_wrap, wspace=wspace)
+        try:
+            wspace = kws_fig.pop("wspace", wspace)
+            col_wrap = kws_fig.pop("ncols", col_wrap)
+            frame = kws_fig.pop("frameon", False)
+            sc.pl.umap(adata, color=col_covariates + pathways, frameon=frame,
+                       ncols=col_wrap, wspace=wspace, **kws_fig)
+        except Exception as err:
+            print(f"Plotting UMAP failed: {err}")
     return adata
 
 
@@ -280,17 +298,18 @@ def run_enrichr(df_degs, col_grouping=None, gene_sets=None,
                             res_pathways_top.loc[x].loc[y].reset_index(),
                             column="Adjusted P-value", x="Direction",
                             y="Term Short", ax=axes[i, j], size=20,
-                            top_term=100, title=x if x != "INDICATOR" else "",
+                            top_term=top_term, cutoff=cutoff,
+                            title=x if x != "INDICATOR" else "",
                             xticklabels_rot=45, yticklabels_rot=45,
-                            show_ring=True, marker="o", cutoff=0.5)  # dotplot
+                            show_ring=show_ring, marker="o")  # dotplot
                         axes[i, j].tick_params(axis="y", labelsize=8)  # y
                         axes[i, j].tick_params(axis="x", labelsize=8)  # x
                         axes[i, j].title.set_fontsize(6)  # title
                     else:
                         axes[i, j].set_visible(False)
                         axes[i, j].set_title(y)  # title
-                if len(axes[i, :]) > len(grps_1):
-                    for a in axes[i, :].flatten()[len(grps_1):]:
+                if len(axes[i, :]) > len(grps_2):
+                    for a in axes[i, :].flatten()[len(grps_2):]:
                         a.set_visible(False)
             kws_title = dict(fontsize=fontsize_suptitle, fontproperties=dict(
                 family=font_family))  # suptitle
