@@ -82,6 +82,8 @@ def read_scrna(file_path, **kws_read):
                     var_names].astype("string")
                 rna.var = rna.var.reset_index().set_index(var_names)
                 rna.var_names = [str(i) for i in rna.var.index.values]
+    elif os.path.splitext(file_path)[1] == ".h5mu":
+        rna = muon.read_h5mu(file_path)
     elif os.path.splitext(file_path)[1] == ".mtx":
         rna = sc.read_10x_mtx(os.path.dirname(file_path), **kws_read)
     elif os.path.isdir(file_path):
@@ -173,7 +175,8 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
     if isinstance(col_sample, (np.ndarray, tuple)):
         col_sample = list(col_sample)
     if isinstance(adata, (list, dict)) and isinstance(
-            adata[ix_0], anndata.AnnData):  # if needs concatenate
+            adata[ix_0], (anndata.AnnData, MuData)):  # if needs concatenate
+        print("ondisk")
         if isinstance(col_sample, list):
             if len(col_sample) != len(adata):
                 raise ValueError("Length of `col_sample` must match "
@@ -278,15 +281,16 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
                      "for mudata. Loading into memory...\n\n")
                 adata = {x: muon.read(adata[x]) for x in adata}
             _ = kws_concat.pop("axis", None)
+            first_args = [adata]
         adata = fx_concat(*first_args, **kws_concat)  # concatenate
         if adata is None:  # if wrote to file instead of doing in memory...
             adata = sc.read_h5ad(out_file)
 
     # To GPU (Optionally)
-    muadata = None
+    adata_mu = None
     if isinstance(adata, MuData):
-        muadata = adata.copy()
-        adata = muadata[assay if assay else "rna"]
+        adata_mu = adata.copy()
+        adata = adata_mu[assay if assay else "rna"]
     pkg = rsc if use_rapids is True else sc
     if use_rapids is True:  # make sure proper matrix format for `rapids`
         for x in adata.layers:
@@ -493,9 +497,9 @@ def integrate(adata, redo_qc_allowed=False, kws_pp=None, kws_cluster=None,
             sc.pl.pca(adata, color=col_covs)
         except Exception as err:
             print(f"\n\n PCA plotting failed: {err}")
-    if mudata is not None:
-        mudata[assay if assay else "rna"] = adata
-        return mudata
+    if adata_mu is not None:
+        adata_mu.mod[assay if assay else "rna"] = adata
+        return adata_mu
     else:
         return adata
 

@@ -171,8 +171,8 @@ def run_decoupler_ulm(adata, col_celltype, col_condition=None, direction="+",
             "pos", "positive", "+"] else dcdf[dcdf["stat"] < 0]
     if p_threshold is not None:
         dcdf = dcdf[dcdf["padj"] < p_threshold]
-    ctypes_dict = dcdf.groupby("group", "padj").head(top_n).groupby("group")[
-        "name"].apply(lambda x: list(x)).to_dict()
+    ctypes_dict = dcdf.sort_values(["group", "padj"]).groupby("group")[
+        "name"].apply(lambda x: list(x.head(top_n))).to_dict()  # select top
     if plot is True:
         if len(ctypes_dict) < 1:
             warn("No significant pathways found.")
@@ -185,9 +185,10 @@ def run_decoupler_ulm(adata, col_celltype, col_condition=None, direction="+",
                     adata=score, var_names=ctypes_dict, groupby=col_celltype,
                     dendrogram=True, standard_scale="var",
                     colorbar_title=title_cb, cmap="RdBu_r")
-                if title is not None:  # title?
-                    fig.fig_title = title
-                fig.show()
+                if fig is not None:
+                    if title is not None:  # title?
+                        fig.fig_title = title
+                    fig.show()
     return score, dcdf, ctypes_dict, fig
 
 
@@ -195,9 +196,10 @@ def run_decoupler_aucell(adata, col_covariates=None, resource="progeny",
                          query=None, species="human", wspace=0.5,
                          col_wrap=True, layer=None, inplace=False, **kws_fig):
     """Run AUCell."""
-    if isinstance(col_covariates, str):
-        col_covariates = [col_covariates]
-    col_covariates = list(col_covariates)
+    if col_covariates is not None:
+        if isinstance(col_covariates, str):
+            col_covariates = [col_covariates]
+        col_covariates = list(col_covariates)
     if inplace is False:
         adata = adata.copy()
     rsrc = dc.op.progeny(organism=species.lower()) if (
@@ -308,8 +310,10 @@ def run_enrichr(df_degs, col_grouping=None, gene_sets=None,
                     else:
                         axes[i, j].set_visible(False)
                         axes[i, j].set_title(y)  # title
-                if len(axes[i, :]) > len(grps_2):
-                    for a in axes[i, :].flatten()[len(grps_2):]:
+                if len(axes[i, :]) > max([0, len(grps_2)]):
+                    tmp_ax = axes[i, :].flatten() if "flatten" in dir(
+                        axes[i, :]) else axes[i, :]
+                    for a in tmp_ax[len(grps_2):]:
                         a.set_visible(False)
             kws_title = dict(fontsize=fontsize_suptitle, fontproperties=dict(
                 family=font_family))  # suptitle
